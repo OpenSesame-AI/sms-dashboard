@@ -1,5 +1,18 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import {
+  ClerkProvider,
+  SignInButton,
+  SignUpButton,
+  SignedIn,
+  SignedOut,
+  UserButton,
+} from "@clerk/nextjs";
+import { HeaderActions } from "@/components/header-actions";
+import { TableSelector } from "@/components/table-selector";
+import { AnalyticsButton } from "@/components/analytics-button";
+import { Providers } from "@/components/providers";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,12 +36,38 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        >
+          <Providers>
+            <Toaster />
+            <SignedOut>
+              <header>
+                <SignInButton />
+                <SignUpButton />
+              </header>
+              {children}
+            </SignedOut>
+            <SignedIn>
+              <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4">
+                <div className="flex items-center gap-2">
+                  <TableSelector />
+                  <AnalyticsButton />
+                </div>
+                <div className="flex items-center gap-2">
+                  <HeaderActions />
+                  <UserButton />
+                </div>
+              </header>
+              <div className="flex flex-1 flex-col gap-4 p-4">
+                {children}
+              </div>
+            </SignedIn>
+          </Providers>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "ai_analysis_results" ADD CONSTRAINT "ai_analysis_results_column_key_phone_number_unique" UNIQUE("column_key","phone_number");
