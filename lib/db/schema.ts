@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, timestamp, uuid, unique } from 'drizzle-orm/pg-core'
+import { pgTable, varchar, text, timestamp, uuid, unique, integer } from 'drizzle-orm/pg-core'
 
 export const phoneUserMappings = pgTable('phone_user_mappings', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -49,6 +49,18 @@ export const cells = pgTable('cells', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 })
 
+export const cellContext = pgTable('cell_context', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cellId: uuid('cell_id').notNull().references(() => cells.id, { onDelete: 'cascade' }),
+  type: varchar('type').notNull(), // 'text' or 'file'
+  name: varchar('name').notNull(), // display name or filename
+  content: text('content'), // for text type, stores the content; for files, stores base64
+  mimeType: varchar('mime_type'), // for files only (e.g., 'application/pdf', 'image/png')
+  fileSize: integer('file_size'), // for files only, in bytes
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+})
+
 export type PhoneUserMapping = typeof phoneUserMappings.$inferSelect
 export type NewPhoneUserMapping = typeof phoneUserMappings.$inferInsert
 export type SmsConversation = typeof smsConversations.$inferSelect
@@ -59,4 +71,6 @@ export type AiAnalysisResult = typeof aiAnalysisResults.$inferSelect
 export type NewAiAnalysisResult = typeof aiAnalysisResults.$inferInsert
 export type Cell = typeof cells.$inferSelect
 export type NewCell = typeof cells.$inferInsert
+export type CellContext = typeof cellContext.$inferSelect
+export type NewCellContext = typeof cellContext.$inferInsert
 

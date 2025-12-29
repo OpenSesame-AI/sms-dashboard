@@ -93,27 +93,91 @@ export function ContactsTable<TData, TValue>({
 }: ContactsTableProps<TData, TValue>) {
   const { selectedCell } = useCell()
   
-  // Fetch contacts with React Query polling, filtered by selected cell
-  const { data, isLoading, error } = useQuery<Contact[]>({
-    queryKey: ['contacts', selectedCell?.id],
-    queryFn: async () => {
-      const url = selectedCell?.id 
-        ? `/api/contacts?cellId=${encodeURIComponent(selectedCell.id)}`
-        : '/api/contacts'
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error('Failed to fetch contacts')
-      }
-      return response.json()
-    },
-    refetchInterval: 10000, // Poll every 10 seconds
-    initialData: initialData as Contact[] | undefined,
-    enabled: !!selectedCell, // Only fetch when a cell is selected
-    retry: 2, // Only retry 2 times to prevent infinite retry loops
-    retryDelay: 1000, // Wait 1 second between retries
-    refetchOnWindowFocus: false, // Don't refetch when window regains focus
-    staleTime: 5000, // Consider data fresh for 5 seconds to prevent aggressive refetching
-  })
+  // Use useState instead of React Query to avoid fetch stalling issues
+  const [contactsData, setContactsData] = React.useState<Contact[]>(initialData as Contact[] || [])
+  const [isLoadingContacts, setIsLoadingContacts] = React.useState(false)
+  const [contactsError, setContactsError] = React.useState<Error | null>(null)
+  const [hasInitialData, setHasInitialData] = React.useState(!!initialData)
+  
+  // Fetch contacts function using XMLHttpRequest (works around fetch stalling issue)
+  const fetchContacts = React.useCallback(async (cellId?: string, isPolling: boolean = false) => {
+    const url = cellId 
+      ? `/api/contacts?cellId=${encodeURIComponent(cellId)}`
+      : '/api/contacts'
+    
+    // Only show loading state if this is initial load (not polling)
+    if (!isPolling) {
+      setIsLoadingContacts(true)
+    }
+    setContactsError(null)
+    
+    try {
+      // Use XMLHttpRequest as a workaround for fetch stalling in Next.js dev server
+      const xhr = new XMLHttpRequest()
+      xhr.open('GET', url, true)
+      xhr.timeout = 10000 // 10 second timeout
+      xhr.setRequestHeader('Cache-Control', 'no-cache')
+      
+      const result = await new Promise<Contact[]>((resolve, reject) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const data = JSON.parse(xhr.responseText)
+              resolve(data)
+            } catch (e) {
+              reject(new Error('Failed to parse JSON response'))
+            }
+          } else {
+            reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`))
+          }
+        }
+        
+        xhr.onerror = () => reject(new Error('Network error'))
+        xhr.ontimeout = () => reject(new Error('Request timeout after 10 seconds'))
+        
+        xhr.send()
+      })
+      
+      setContactsData(result)
+      setIsLoadingContacts(false)
+      setContactsError(null)
+      setHasInitialData(true)
+    } catch (err: any) {
+      setContactsError(err)
+      setIsLoadingContacts(false)
+      // Don't clear data on error, keep previous data visible
+    }
+  }, [])
+  
+  // Fetch contacts when cell changes (initial load)
+  React.useEffect(() => {
+    if (!selectedCell) {
+      setContactsData([])
+      setHasInitialData(false)
+      setIsLoadingContacts(false)
+      return
+    }
+    
+    // Reset state for new cell
+    setHasInitialData(false)
+    fetchContacts(selectedCell.id, false)
+  }, [selectedCell?.id, fetchContacts])
+  
+  // Poll for updates every 10 seconds (silent background updates)
+  React.useEffect(() => {
+    if (!selectedCell || !hasInitialData) return
+    
+    const intervalId = setInterval(() => {
+      fetchContacts(selectedCell.id, true) // Pass isPolling=true to prevent loading state
+    }, 10000)
+    
+    return () => clearInterval(intervalId)
+  }, [selectedCell?.id, fetchContacts, hasInitialData])
+  
+  // Use the state data
+  const data = contactsData
+  const isLoading = isLoadingContacts
+  const error = contactsError
 
   // Use fetched data or fallback to initial data
   const tableData = (data || initialData || []) as TData[]

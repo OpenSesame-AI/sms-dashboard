@@ -1,5 +1,5 @@
 import { db, postgresClient } from './index'
-import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells } from './schema'
+import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext } from './schema'
 import { eq, sql, desc, asc, and, gte } from 'drizzle-orm'
 
 export type Contact = {
@@ -83,16 +83,29 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
         ORDER BY MAX(s.timestamp) DESC NULLS LAST
       `
 
-  const contacts: Contact[] = results.map((row: any) => ({
-    id: row.id,
-    phoneNumber: row.phoneNumber,
-    userId: row.userId,
-    lastMessage: row.lastMessage || null,
-    status: row.lastStatus || 'pending',
-    numberOfMessages: row.numberOfMessages || 0,
-    started: formatDate(row.createdAt),
-    lastActivity: formatDateTime(row.lastActivity),
-  }))
+  // Ensure results is an array
+  if (!Array.isArray(results)) {
+    console.error('[getContacts] Results is not an array:', typeof results, results)
+    return []
+  }
+
+  const contacts: Contact[] = results.map((row: any) => {
+    try {
+      return {
+        id: row.id,
+        phoneNumber: row.phoneNumber,
+        userId: row.userId,
+        lastMessage: row.lastMessage || null,
+        status: row.lastStatus || 'pending',
+        numberOfMessages: row.numberOfMessages || 0,
+        started: formatDate(row.createdAt),
+        lastActivity: formatDateTime(row.lastActivity),
+      }
+    } catch (err) {
+      console.error('[getContacts] Error mapping row:', err, row)
+      throw err
+    }
+  })
 
   return contacts
 }
@@ -577,5 +590,43 @@ export async function deleteCell(id: string) {
   await db
     .delete(cells)
     .where(eq(cells.id, id))
+}
+
+// Cell Context CRUD queries
+export async function getCellContext(cellId: string) {
+  return await db
+    .select()
+    .from(cellContext)
+    .where(eq(cellContext.cellId, cellId))
+    .orderBy(asc(cellContext.createdAt))
+}
+
+export async function addCellContext(
+  cellId: string,
+  type: 'text' | 'file',
+  name: string,
+  content: string | null,
+  mimeType?: string | null,
+  fileSize?: number | null
+) {
+  const result = await db
+    .insert(cellContext)
+    .values({
+      cellId,
+      type,
+      name,
+      content,
+      mimeType: mimeType || null,
+      fileSize: fileSize || null,
+    })
+    .returning()
+  
+  return result[0]
+}
+
+export async function deleteCellContext(contextId: string) {
+  await db
+    .delete(cellContext)
+    .where(eq(cellContext.id, contextId))
 }
 

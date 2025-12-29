@@ -9,6 +9,7 @@
     "lint": "eslint",
     "migrate:ai-tables": "tsx scripts/apply-ai-tables.ts",
     "migrate:cells": "tsx scripts/apply-cells-table.ts",
+    "migrate:cell-context": "tsx scripts/apply-cell-context-table.ts",
     "create-default-cell": "tsx scripts/create-default-cell.ts",
     "check-data": "tsx scripts/check-existing-data.ts",
     "check-testing-cell": "tsx scripts/check-testing-cell.ts",

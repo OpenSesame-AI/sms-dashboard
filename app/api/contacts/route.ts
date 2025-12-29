@@ -21,9 +21,16 @@ export async function GET(request: NextRequest) {
     
     // Add 30 second timeout to prevent indefinite hangs
     const contacts = await withTimeout(getContacts(cellId || undefined), 30000)
-    return NextResponse.json(contacts)
+    
+    return NextResponse.json(contacts, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+    })
   } catch (error) {
-    console.error('Error fetching contacts:', error)
+    console.error('[API] Error fetching contacts:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
       { error: 'Failed to fetch contacts', details: errorMessage },

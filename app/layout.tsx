@@ -11,6 +11,7 @@ import {
 import { HeaderActions } from "@/components/header-actions";
 import { TableSelector } from "@/components/table-selector";
 import { AnalyticsButton } from "@/components/analytics-button";
+import { ContextButton } from "@/components/context-button";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -55,6 +56,7 @@ export default function RootLayout({
                 <div className="flex items-center gap-2">
                   <TableSelector />
                   <AnalyticsButton />
+                  <ContextButton />
                 </div>
                 <div className="flex items-center gap-2">
                   <HeaderActions />
