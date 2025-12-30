@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
           })
 
           const response = completion.choices[0]?.message?.content?.toLowerCase().trim()
-          shouldTrigger = response === 'yes' || response?.startsWith('yes')
+          shouldTrigger = response === 'yes' || (response?.startsWith('yes') ?? false)
         } catch (error) {
           console.error(`Error evaluating AI alert ${alert.id}:`, error)
           continue

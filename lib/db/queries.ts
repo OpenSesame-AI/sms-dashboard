@@ -182,6 +182,11 @@ export async function getContactById(id: string): Promise<Contact | null> {
   const stats = conversationStats[0]
   const direction = stats?.lastMessageDirection?.toLowerCase()
 
+  // Get seen state for this contact
+  const seenState = await getContactSeenState(phoneMapping.phoneNumber, phoneMapping.cellId || undefined)
+  const lastSeenActivityRaw = seenState?.lastSeenActivity?.toISOString() || null
+  const lastSeenActivity = lastSeenActivityRaw ? formatDateTime(lastSeenActivityRaw) : null
+
   return {
     id: phoneMapping.id,
     phoneNumber: phoneMapping.phoneNumber,
@@ -192,6 +197,7 @@ export async function getContactById(id: string): Promise<Contact | null> {
     started: formatDate(phoneMapping.createdAt),
     lastActivity: formatDateTime(stats?.lastActivity),
     lastMessageDirection: direction === 'inbound' || direction === 'outbound' ? direction : null,
+    lastSeenActivity,
   }
 }
 
