@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, timestamp, uuid, unique, integer } from 'drizzle-orm/pg-core'
+import { pgTable, varchar, text, timestamp, uuid, unique, integer, boolean } from 'drizzle-orm/pg-core'
 
 export const phoneUserMappings = pgTable('phone_user_mappings', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -61,6 +61,49 @@ export const cellContext = pgTable('cell_context', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 })
 
+export const contactSeenState = pgTable('contact_seen_state', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  lastSeenActivity: timestamp('last_seen_activity', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
+export const aiAlerts = pgTable('ai_alerts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name').notNull(),
+  type: varchar('type').notNull(), // 'ai' or 'keyword'
+  condition: text('condition').notNull(), // AI prompt or keywords
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+})
+
+export const aiAlertTriggers = pgTable('ai_alert_triggers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  alertId: uuid('alert_id').notNull().references(() => aiAlerts.id, { onDelete: 'cascade' }),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  messageId: uuid('message_id').references(() => smsConversations.id, { onDelete: 'cascade' }),
+  triggeredAt: timestamp('triggered_at', { withTimezone: true }).defaultNow(),
+  dismissed: boolean('dismissed').notNull().default(false),
+})
+
+export const columnColors = pgTable('column_colors', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  columnId: varchar('column_id').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  color: varchar('color').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniqueColumnCell: unique().on(table.columnId, table.cellId),
+}))
+
 export type PhoneUserMapping = typeof phoneUserMappings.$inferSelect
 export type NewPhoneUserMapping = typeof phoneUserMappings.$inferInsert
 export type SmsConversation = typeof smsConversations.$inferSelect
@@ -73,4 +116,12 @@ export type Cell = typeof cells.$inferSelect
 export type NewCell = typeof cells.$inferInsert
 export type CellContext = typeof cellContext.$inferSelect
 export type NewCellContext = typeof cellContext.$inferInsert
+export type ContactSeenState = typeof contactSeenState.$inferSelect
+export type NewContactSeenState = typeof contactSeenState.$inferInsert
+export type AiAlert = typeof aiAlerts.$inferSelect
+export type NewAiAlert = typeof aiAlerts.$inferInsert
+export type AiAlertTrigger = typeof aiAlertTriggers.$inferSelect
+export type NewAiAlertTrigger = typeof aiAlertTriggers.$inferInsert
+export type ColumnColor = typeof columnColors.$inferSelect
+export type NewColumnColor = typeof columnColors.$inferInsert
 

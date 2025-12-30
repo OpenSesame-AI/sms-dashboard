@@ -1,6 +1,6 @@
 import { db, postgresClient } from './index'
-import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext } from './schema'
-import { eq, sql, desc, asc, and, gte } from 'drizzle-orm'
+import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors } from './schema'
+import { eq, sql, desc, asc, and, gte, or, like, isNull } from 'drizzle-orm'
 
 export type Contact = {
   id: string
@@ -11,6 +11,8 @@ export type Contact = {
   numberOfMessages: number
   started: string | null
   lastActivity: string | null
+  lastMessageDirection: 'inbound' | 'outbound' | null
+  lastSeenActivity: string | null
 }
 
 // Helper functions to format dates as strings
@@ -35,6 +37,15 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
   // Optimized single query using LEFT JOIN and GROUP BY to avoid N+1 pattern
   // This reduces query count from N+1 to just 1, regardless of contact count
   
+  // First, get all seen states for this cell
+  const seenStates = await getAllContactSeenStates(cellId)
+  const seenStateMap = new Map<string, string>()
+  seenStates.forEach((state) => {
+    if (state.lastSeenActivity) {
+      seenStateMap.set(state.phoneNumber, state.lastSeenActivity.toISOString())
+    }
+  })
+  
   // Use postgres client directly for raw SQL queries (same as scripts)
   const results = cellId
     ? await postgresClient`
@@ -50,13 +61,21 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
             SELECT s2.status
             FROM sms_conversations s2
             WHERE s2.phone_number = p.phone_number
-              AND s2.cell_id = ${cellId}
+              AND (s2.cell_id = ${cellId} OR s2.cell_id IS NULL)
             ORDER BY s2.timestamp DESC
             LIMIT 1
-          ) as "lastStatus"
+          ) as "lastStatus",
+          (
+            SELECT s3.direction
+            FROM sms_conversations s3
+            WHERE s3.phone_number = p.phone_number
+              AND (s3.cell_id = ${cellId} OR s3.cell_id IS NULL)
+            ORDER BY s3.timestamp DESC
+            LIMIT 1
+          ) as "lastMessageDirection"
         FROM phone_user_mappings p
         LEFT JOIN sms_conversations s ON s.phone_number = p.phone_number
-          AND s.cell_id = ${cellId}
+          AND (s.cell_id = ${cellId} OR s.cell_id IS NULL)
         WHERE p.cell_id = ${cellId}
         GROUP BY p.id, p.phone_number, p.user_id, p.created_at
         ORDER BY MAX(s.timestamp) DESC NULLS LAST
@@ -76,7 +95,14 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
             WHERE s2.phone_number = p.phone_number
             ORDER BY s2.timestamp DESC
             LIMIT 1
-          ) as "lastStatus"
+          ) as "lastStatus",
+          (
+            SELECT s3.direction
+            FROM sms_conversations s3
+            WHERE s3.phone_number = p.phone_number
+            ORDER BY s3.timestamp DESC
+            LIMIT 1
+          ) as "lastMessageDirection"
         FROM phone_user_mappings p
         LEFT JOIN sms_conversations s ON s.phone_number = p.phone_number
         GROUP BY p.id, p.phone_number, p.user_id, p.created_at
@@ -91,6 +117,11 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
 
   const contacts: Contact[] = results.map((row: any) => {
     try {
+      const direction = row.lastMessageDirection?.toLowerCase()
+      const lastSeenActivityRaw = seenStateMap.get(row.phoneNumber) || null
+      // Store both raw timestamp (for API calls) and formatted string (for display/comparison)
+      // We'll use the formatted string for comparison since both lastActivity and lastSeenActivity are formatted
+      const lastSeenActivity = lastSeenActivityRaw ? formatDateTime(lastSeenActivityRaw) : null
       return {
         id: row.id,
         phoneNumber: row.phoneNumber,
@@ -100,6 +131,8 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
         numberOfMessages: row.numberOfMessages || 0,
         started: formatDate(row.createdAt),
         lastActivity: formatDateTime(row.lastActivity),
+        lastMessageDirection: direction === 'inbound' || direction === 'outbound' ? direction : null,
+        lastSeenActivity,
       }
     } catch (err) {
       console.error('[getContacts] Error mapping row:', err, row)
@@ -135,11 +168,19 @@ export async function getContactById(id: string): Promise<Contact | null> {
         ORDER BY ${smsConversations.timestamp} DESC 
         LIMIT 1
       )`,
+      lastMessageDirection: sql<string | null>`(
+        SELECT ${smsConversations.direction} 
+        FROM ${smsConversations} 
+        WHERE ${smsConversations.phoneNumber} = ${phoneMapping.phoneNumber}
+        ORDER BY ${smsConversations.timestamp} DESC 
+        LIMIT 1
+      )`,
     })
     .from(smsConversations)
     .where(eq(smsConversations.phoneNumber, phoneMapping.phoneNumber))
 
   const stats = conversationStats[0]
+  const direction = stats?.lastMessageDirection?.toLowerCase()
 
   return {
     id: phoneMapping.id,
@@ -150,6 +191,7 @@ export async function getContactById(id: string): Promise<Contact | null> {
     numberOfMessages: stats?.count || 0,
     started: formatDate(phoneMapping.createdAt),
     lastActivity: formatDateTime(stats?.lastActivity),
+    lastMessageDirection: direction === 'inbound' || direction === 'outbound' ? direction : null,
   }
 }
 
@@ -171,7 +213,10 @@ export async function getConversationsByPhoneNumber(
       cellId
         ? and(
             eq(smsConversations.phoneNumber, phoneNumber),
-            eq(smsConversations.cellId, cellId)
+            or(
+              eq(smsConversations.cellId, cellId),
+              isNull(smsConversations.cellId)
+            )
           )
         : eq(smsConversations.phoneNumber, phoneNumber)
     )
@@ -628,5 +673,347 @@ export async function deleteCellContext(contextId: string) {
   await db
     .delete(cellContext)
     .where(eq(cellContext.id, contextId))
+}
+
+// Contact Seen State queries
+export async function getContactSeenState(phoneNumber: string, cellId?: string) {
+  const result = await db
+    .select()
+    .from(contactSeenState)
+    .where(
+      cellId
+        ? and(
+            eq(contactSeenState.phoneNumber, phoneNumber),
+            eq(contactSeenState.cellId, cellId)
+          )
+        : eq(contactSeenState.phoneNumber, phoneNumber)
+    )
+    .limit(1)
+  
+  return result[0] || null
+}
+
+export async function getAllContactSeenStates(cellId?: string) {
+  const results = await db
+    .select()
+    .from(contactSeenState)
+    .where(cellId ? eq(contactSeenState.cellId, cellId) : undefined)
+  
+  return results
+}
+
+export async function markContactAsSeen(phoneNumber: string, lastSeenActivity: string, cellId?: string) {
+  // Try to find existing record
+  const existing = await getContactSeenState(phoneNumber, cellId)
+  
+  if (existing) {
+    // Update existing record
+    const result = await db
+      .update(contactSeenState)
+      .set({
+        lastSeenActivity: new Date(lastSeenActivity),
+        updatedAt: new Date(),
+      })
+      .where(eq(contactSeenState.id, existing.id))
+      .returning()
+    
+    return result[0] || null
+  } else {
+    // Insert new record
+    const result = await db
+      .insert(contactSeenState)
+      .values({
+        phoneNumber,
+        cellId: cellId || null,
+        lastSeenActivity: new Date(lastSeenActivity),
+      })
+      .returning()
+    
+    return result[0] || null
+  }
+}
+
+// AI Alerts queries
+export async function getAiAlerts(cellId?: string) {
+  if (cellId) {
+    return await db
+      .select()
+      .from(aiAlerts)
+      .where(eq(aiAlerts.cellId, cellId))
+      .orderBy(asc(aiAlerts.createdAt))
+  } else {
+    return await db
+      .select()
+      .from(aiAlerts)
+      .orderBy(asc(aiAlerts.createdAt))
+  }
+}
+
+export async function getAiAlertById(id: string) {
+  const result = await db
+    .select()
+    .from(aiAlerts)
+    .where(eq(aiAlerts.id, id))
+    .limit(1)
+  
+  return result[0] || null
+}
+
+export async function getEnabledAiAlerts(cellId?: string) {
+  if (cellId) {
+    return await db
+      .select()
+      .from(aiAlerts)
+      .where(and(eq(aiAlerts.enabled, true), eq(aiAlerts.cellId, cellId)))
+  } else {
+    return await db
+      .select()
+      .from(aiAlerts)
+      .where(eq(aiAlerts.enabled, true))
+  }
+}
+
+export async function createAiAlert(
+  name: string,
+  type: 'ai' | 'keyword',
+  condition: string,
+  cellId?: string
+) {
+  const result = await db
+    .insert(aiAlerts)
+    .values({
+      name,
+      type,
+      condition,
+      cellId: cellId || null,
+      enabled: true,
+    })
+    .returning()
+  
+  return result[0]
+}
+
+export async function updateAiAlert(
+  id: string,
+  name?: string,
+  type?: 'ai' | 'keyword',
+  condition?: string,
+  enabled?: boolean
+) {
+  const updateData: any = {
+    updatedAt: new Date(),
+  }
+  
+  if (name !== undefined) updateData.name = name
+  if (type !== undefined) updateData.type = type
+  if (condition !== undefined) updateData.condition = condition
+  if (enabled !== undefined) updateData.enabled = enabled
+  
+  const result = await db
+    .update(aiAlerts)
+    .set(updateData)
+    .where(eq(aiAlerts.id, id))
+    .returning()
+  
+  return result[0] || null
+}
+
+export async function deleteAiAlert(id: string) {
+  await db
+    .delete(aiAlerts)
+    .where(eq(aiAlerts.id, id))
+}
+
+// AI Alert Triggers queries
+export async function getAiAlertTriggers(phoneNumber?: string, cellId?: string, dismissed?: boolean) {
+  const conditions = []
+  
+  if (phoneNumber) {
+    conditions.push(eq(aiAlertTriggers.phoneNumber, phoneNumber))
+  }
+  if (cellId) {
+    conditions.push(eq(aiAlertTriggers.cellId, cellId))
+  }
+  if (dismissed !== undefined) {
+    conditions.push(eq(aiAlertTriggers.dismissed, dismissed))
+  }
+  
+  if (conditions.length > 0) {
+    return await db
+      .select()
+      .from(aiAlertTriggers)
+      .where(and(...conditions))
+      .orderBy(desc(aiAlertTriggers.triggeredAt))
+  } else {
+    return await db
+      .select()
+      .from(aiAlertTriggers)
+      .orderBy(desc(aiAlertTriggers.triggeredAt))
+  }
+}
+
+export async function getActiveAlertTriggersForContact(phoneNumber: string, cellId?: string) {
+  return await db
+    .select()
+    .from(aiAlertTriggers)
+    .where(
+      cellId
+        ? and(
+            eq(aiAlertTriggers.phoneNumber, phoneNumber),
+            eq(aiAlertTriggers.cellId, cellId),
+            eq(aiAlertTriggers.dismissed, false)
+          )
+        : and(
+            eq(aiAlertTriggers.phoneNumber, phoneNumber),
+            eq(aiAlertTriggers.dismissed, false)
+          )
+    )
+    .orderBy(desc(aiAlertTriggers.triggeredAt))
+}
+
+export async function createAiAlertTrigger(
+  alertId: string,
+  phoneNumber: string,
+  messageId: string,
+  cellId?: string
+) {
+  // Check if this alert was already triggered for this message (avoid duplicates)
+  const existing = await db
+    .select()
+    .from(aiAlertTriggers)
+    .where(
+      and(
+        eq(aiAlertTriggers.alertId, alertId),
+        eq(aiAlertTriggers.messageId, messageId)
+      )
+    )
+    .limit(1)
+  
+  if (existing.length > 0) {
+    return existing[0]
+  }
+  
+  const result = await db
+    .insert(aiAlertTriggers)
+    .values({
+      alertId,
+      phoneNumber,
+      messageId,
+      cellId: cellId || null,
+      dismissed: false,
+    })
+    .returning()
+  
+  return result[0]
+}
+
+export async function dismissAiAlertTrigger(id: string) {
+  const result = await db
+    .update(aiAlertTriggers)
+    .set({
+      dismissed: true,
+    })
+    .where(eq(aiAlertTriggers.id, id))
+    .returning()
+  
+  return result[0] || null
+}
+
+export async function dismissAllAlertTriggersForContact(phoneNumber: string, cellId?: string) {
+  await db
+    .update(aiAlertTriggers)
+    .set({
+      dismissed: true,
+    })
+    .where(
+      cellId
+        ? and(
+            eq(aiAlertTriggers.phoneNumber, phoneNumber),
+            eq(aiAlertTriggers.cellId, cellId)
+          )
+        : eq(aiAlertTriggers.phoneNumber, phoneNumber)
+    )
+}
+
+// Column Colors queries
+export async function getColumnColors(cellId?: string) {
+  if (cellId) {
+    return await db
+      .select()
+      .from(columnColors)
+      .where(eq(columnColors.cellId, cellId))
+  } else {
+    return await db
+      .select()
+      .from(columnColors)
+      .where(isNull(columnColors.cellId))
+  }
+}
+
+export async function getColumnColor(columnId: string, cellId?: string) {
+  const result = await db
+    .select()
+    .from(columnColors)
+    .where(
+      cellId
+        ? and(
+            eq(columnColors.columnId, columnId),
+            eq(columnColors.cellId, cellId)
+          )
+        : and(
+            eq(columnColors.columnId, columnId),
+            isNull(columnColors.cellId)
+          )
+    )
+    .limit(1)
+  
+  return result[0] || null
+}
+
+export async function saveColumnColor(columnId: string, color: string, cellId?: string) {
+  // Try to find existing record
+  const existing = await getColumnColor(columnId, cellId)
+  
+  if (existing) {
+    // Update existing record
+    const result = await db
+      .update(columnColors)
+      .set({
+        color,
+        updatedAt: new Date(),
+      })
+      .where(eq(columnColors.id, existing.id))
+      .returning()
+    
+    return result[0] || null
+  } else {
+    // Insert new record
+    const result = await db
+      .insert(columnColors)
+      .values({
+        columnId,
+        cellId: cellId || null,
+        color,
+      })
+      .returning()
+    
+    return result[0] || null
+  }
+}
+
+export async function deleteColumnColor(columnId: string, cellId?: string) {
+  await db
+    .delete(columnColors)
+    .where(
+      cellId
+        ? and(
+            eq(columnColors.columnId, columnId),
+            eq(columnColors.cellId, cellId)
+          )
+        : and(
+            eq(columnColors.columnId, columnId),
+            isNull(columnColors.cellId)
+          )
+    )
 }
 

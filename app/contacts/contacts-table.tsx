@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   ColumnDef,
   ColumnFiltersState,
+  ColumnSizingState,
   SortingState,
   VisibilityState,
   flexRender,
@@ -17,6 +18,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -28,7 +30,7 @@ import {
 } from "@/components/ui/table"
 import { DataTablePagination } from "@/components/data-table-pagination"
 import { Contact, ConversationMessage } from "@/lib/data"
-import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel } from "lucide-react"
+import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel, Bell, AlertTriangle, WandSparkles, Settings, Eye, EyeOff, Copy, ArrowLeft, ArrowRight, Pin, Info, Palette, Type } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useCell } from "@/components/cell-context"
 import {
@@ -80,7 +82,15 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 
 interface ContactsTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
@@ -98,6 +108,25 @@ export function ContactsTable<TData, TValue>({
   const [isLoadingContacts, setIsLoadingContacts] = React.useState(false)
   const [contactsError, setContactsError] = React.useState<Error | null>(null)
   const [hasInitialData, setHasInitialData] = React.useState(!!initialData)
+  
+  // Compute unread phone numbers from contact data (using DB state)
+  const unreadPhoneNumbers = React.useMemo(() => {
+    const unread = new Set<string>()
+    contactsData.forEach((contact) => {
+      // Contact is unread if:
+      // 1. Last message is inbound
+      // 2. Has activity
+      // 3. Never seen OR last activity is newer than last seen
+      if (
+        contact.lastMessageDirection === 'inbound' &&
+        contact.lastActivity &&
+        (!contact.lastSeenActivity || contact.lastActivity !== contact.lastSeenActivity)
+      ) {
+        unread.add(contact.phoneNumber)
+      }
+    })
+    return unread
+  }, [contactsData])
   
   // Fetch contacts function using XMLHttpRequest (works around fetch stalling issue)
   const fetchContacts = React.useCallback(async (cellId?: string, isPolling: boolean = false) => {
@@ -138,7 +167,9 @@ export function ContactsTable<TData, TValue>({
         xhr.send()
       })
       
+      // Update contacts data (seen state is now in DB, computed via useMemo)
       setContactsData(result)
+      
       setIsLoadingContacts(false)
       setContactsError(null)
       setHasInitialData(true)
@@ -173,6 +204,36 @@ export function ContactsTable<TData, TValue>({
     
     return () => clearInterval(intervalId)
   }, [selectedCell?.id, fetchContacts, hasInitialData])
+
+  // Load column colors from database
+  React.useEffect(() => {
+    const loadColumnColors = async () => {
+      try {
+        const cellId = selectedCell?.id
+        const url = cellId 
+          ? `/api/column-colors?cellId=${encodeURIComponent(cellId)}`
+          : '/api/column-colors'
+        
+        const response = await fetch(url)
+        if (response.ok) {
+          const colors = await response.json()
+          console.log('Loaded column colors:', colors)
+          setColumnColors(colors)
+        } else {
+          console.error('Failed to load column colors:', response.status, response.statusText)
+        }
+      } catch (error) {
+        console.error('Error loading column colors:', error)
+      }
+    }
+    
+    if (selectedCell) {
+      loadColumnColors()
+    } else {
+      // Load global colors when no cell is selected
+      loadColumnColors()
+    }
+  }, [selectedCell?.id])
   
   // Use the state data
   const data = contactsData
@@ -193,54 +254,22 @@ export function ContactsTable<TData, TValue>({
   
   // Store order of initial columns for reordering (AI columns always at end)
   const [initialColumnOrder, setInitialColumnOrder] = React.useState<ColumnDef<TData, TValue>[]>(initialColumns)
+  
+  // Alert state (needed before columns useMemo)
+  const [alerts, setAlerts] = React.useState<Array<{
+    id: string
+    name: string
+    type: 'ai' | 'keyword'
+    condition: string
+    enabled: boolean
+  }>>([])
+  const [alertTriggers, setAlertTriggers] = React.useState<Map<string, Array<{
+    id: string
+    alertId: string
+    alertName: string
+    triggeredAt: string
+  }>>>(new Map())
 
-  // Create columns with AI columns dynamically
-  const columns = React.useMemo<ColumnDef<TData, TValue>[]>(() => {
-    const aiColumnDefs: ColumnDef<TData, TValue>[] = Array.from(aiColumns.entries()).map(([columnKey, columnDef]) => ({
-      accessorKey: columnKey,
-      header: () => (
-        <div className="flex items-center gap-2">
-          <span>{columnDef.name}</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={(e) => {
-              e.stopPropagation()
-              setEditingColumnKey(columnKey)
-              setEditColumnName(columnDef.name)
-              setEditAiDescription(columnDef.prompt)
-              setIsEditColumnDialogOpen(true)
-            }}
-          >
-            <Pencil className="h-3 w-3" />
-            <span className="sr-only">Edit column</span>
-          </Button>
-        </div>
-      ),
-      cell: ({ row }) => {
-        const contact = row.original as Contact
-        const result = analysisResults.get(columnKey)?.get(contact.phoneNumber)
-        const isLoading = analysisLoading.get(columnKey) || false
-        
-        if (isLoading) {
-          return <span className="text-muted-foreground">Analyzing...</span>
-        }
-        
-        if (result === undefined) {
-          return <span className="text-muted-foreground">Pending</span>
-        }
-        
-        if (result === null) {
-          return <span className="text-destructive">Error</span>
-        }
-        
-        return <span className="text-sm">{result}</span>
-      },
-    }))
-    
-    return [...initialColumnOrder, ...aiColumnDefs]
-  }, [initialColumnOrder, aiColumns, analysisResults, analysisLoading])
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "lastActivity", desc: true }
   ])
@@ -253,6 +282,480 @@ export function ContactsTable<TData, TValue>({
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = React.useState({})
+  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
+  const [columnColors, setColumnColors] = React.useState<Record<string, string>>({})
+  
+  // Helper function to get contrasting text color (black or white) based on background
+  const getContrastColor = (backgroundColor: string): string => {
+    if (!backgroundColor) return ""
+    // Remove # if present
+    const hex = backgroundColor.replace("#", "")
+    // Convert to RGB
+    const r = parseInt(hex.substr(0, 2), 16)
+    const g = parseInt(hex.substr(2, 2), 16)
+    const b = parseInt(hex.substr(4, 2), 16)
+    // Calculate luminance
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    // Return black for light colors, white for dark colors
+    return luminance > 0.5 ? "#000000" : "#ffffff"
+  }
+
+  // Helper function to convert hex color to rgba with reduced opacity
+  const getColorWithOpacity = (hexColor: string, opacity: number = 0.1): string => {
+    if (!hexColor) return ""
+    // Remove # if present
+    const hex = hexColor.replace("#", "")
+    // Convert to RGB
+    const r = parseInt(hex.substr(0, 2), 16)
+    const g = parseInt(hex.substr(2, 2), 16)
+    const b = parseInt(hex.substr(4, 2), 16)
+    // Return rgba string
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`
+  }
+
+  // Available colors for column headers
+  const availableColors = [
+    { name: "Default", value: "" },
+    { name: "Red", value: "#ef4444" },
+    { name: "Orange", value: "#f97316" },
+    { name: "Amber", value: "#f59e0b" },
+    { name: "Yellow", value: "#eab308" },
+    { name: "Lime", value: "#84cc16" },
+    { name: "Green", value: "#22c55e" },
+    { name: "Emerald", value: "#10b981" },
+    { name: "Teal", value: "#14b8a6" },
+    { name: "Cyan", value: "#06b6d4" },
+    { name: "Sky", value: "#0ea5e9" },
+    { name: "Blue", value: "#3b82f6" },
+    { name: "Indigo", value: "#6366f1" },
+    { name: "Violet", value: "#8b5cf6" },
+    { name: "Purple", value: "#a855f7" },
+    { name: "Fuchsia", value: "#d946ef" },
+    { name: "Pink", value: "#ec4899" },
+    { name: "Rose", value: "#f43f5e" },
+  ]
+
+  // Column Header Menu Component
+  const ColumnHeaderMenu = React.useCallback(({
+    children,
+    columnId,
+    columnName,
+    columnType = 'regular',
+    columnKey,
+    onRename,
+    onEdit,
+    onDelete,
+    onHide,
+    onSortAsc,
+    onSortDesc,
+    onFilter,
+  }: {
+    children: React.ReactNode
+    columnId: string
+    columnName: string
+    columnType?: 'regular' | 'ai' | 'alert'
+    columnKey?: string
+    onRename?: () => void
+    onEdit?: () => void
+    onDelete?: () => void
+    onHide?: () => void
+    onSortAsc?: () => void
+    onSortDesc?: () => void
+    onFilter?: () => void
+  }) => {
+    const isHidden = columnVisibility[columnId] === false
+    const isPhoneNumber = columnId === 'phoneNumber'
+    const currentColor = columnColors[columnId] || ""
+    
+    const handleColorChange = async (color: string) => {
+      console.log('Changing color for columnId:', columnId, 'to:', color)
+      // Update local state immediately for responsive UI
+      setColumnColors((prev) => ({
+        ...prev,
+        [columnId]: color,
+      }))
+      
+      // Save to database
+      try {
+        const cellId = selectedCell?.id
+        console.log('Saving column color:', { columnId, color, cellId })
+        const response = await fetch('/api/column-colors', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            columnId,
+            color,
+            cellId,
+          }),
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          console.error('Failed to save column color:', response.status, errorData)
+          // Revert on error
+          setColumnColors((prev) => {
+            const updated = { ...prev }
+            if (color === '') {
+              delete updated[columnId]
+            } else {
+              updated[columnId] = color
+            }
+            return updated
+          })
+        } else {
+          console.log('Successfully saved column color')
+        }
+      } catch (error) {
+        console.error('Error saving column color:', error)
+        // Revert on error
+        setColumnColors((prev) => {
+          const updated = { ...prev }
+          if (color === '') {
+            delete updated[columnId]
+          } else {
+            updated[columnId] = color
+          }
+          return updated
+        })
+      }
+    }
+    
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <div className="flex items-center gap-2 cursor-pointer rounded px-1 -mx-1 w-full">
+            {children}
+          </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuLabel>{columnName}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          
+          {onRename && (
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Rename column
+            </DropdownMenuItem>
+          )}
+          
+          {onEdit && (
+            <DropdownMenuItem onClick={onEdit}>
+              <Settings className="h-4 w-4 mr-2" />
+              Edit column
+            </DropdownMenuItem>
+          )}
+          
+         
+          
+          {columnType === 'ai' && (
+            <DropdownMenuItem onClick={onEdit}>
+              <Info className="h-4 w-4 mr-2" />
+              Edit description
+            </DropdownMenuItem>
+          )}
+          
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Palette className="h-4 w-4 mr-2" />
+              Change color
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-64">
+              <div className="grid grid-cols-6 gap-2 p-2">
+                {availableColors.map((color) => (
+                  <button
+                    key={color.value || "default"}
+                    onClick={() => handleColorChange(color.value)}
+                    className={cn(
+                      "h-8 w-8 rounded-md border-2 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary",
+                      color.value === "" 
+                        ? "bg-background border-foreground/20 hover:border-foreground/40"
+                        : "border-transparent hover:border-foreground/40",
+                      currentColor === color.value && "ring-2 ring-offset-2 ring-primary"
+                    )}
+                    style={color.value ? { backgroundColor: color.value } : {}}
+                    title={color.name}
+                    aria-label={color.name}
+                  />
+                ))}
+              </div>
+              {currentColor && (
+                <div className="px-2 pb-2">
+                  <DropdownMenuItem
+                    onClick={() => handleColorChange("")}
+                  >
+                    Reset to default
+                  </DropdownMenuItem>
+                </div>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          
+          
+          <DropdownMenuSeparator />
+          
+          {onSortAsc && (
+            <DropdownMenuItem onClick={onSortAsc}>
+              <ArrowUp className="h-4 w-4 mr-2" />
+              Sort A → Z
+            </DropdownMenuItem>
+          )}
+          
+          {onSortDesc && (
+            <DropdownMenuItem onClick={onSortDesc}>
+              <ArrowDown className="h-4 w-4 mr-2" />
+              Sort Z → A
+            </DropdownMenuItem>
+          )}
+          
+          {onFilter && (
+            <DropdownMenuItem onClick={onFilter}>
+              <Funnel className="h-4 w-4 mr-2" />
+              Filter on this column
+            </DropdownMenuItem>
+          )}
+          
+          <DropdownMenuItem disabled>
+            <Pin className="h-4 w-4 mr-2" />
+            Pin
+          </DropdownMenuItem>
+          
+          {onHide && (
+            <DropdownMenuItem onClick={onHide}>
+              {isHidden ? (
+                <>
+                  <EyeOff className="h-4 w-4 mr-2" />
+                  Show column
+                </>
+              ) : (
+                <>
+                  <Eye className="h-4 w-4 mr-2" />
+                  Hide column
+                </>
+              )}
+            </DropdownMenuItem>
+          )}
+          
+          {onDelete && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onDelete} variant="destructive">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }, [columnVisibility, columnColors, selectedCell?.id])
+
+  // Create columns with AI columns and Alert columns dynamically
+  const columns = React.useMemo<ColumnDef<TData, TValue>[]>(() => {
+    const aiColumnDefs: ColumnDef<TData, TValue>[] = Array.from(aiColumns.entries()).map(([columnKey, columnDef]) => ({
+      accessorKey: columnKey,
+      header: ({ column }) => (
+        <ColumnHeaderMenu
+          columnId={column.id}
+          columnName={columnDef.name}
+          columnType="ai"
+          columnKey={columnKey}
+          onRename={() => {
+            setEditingColumnKey(columnKey)
+            setEditColumnName(columnDef.name)
+            setEditAiDescription(columnDef.prompt)
+            setIsEditColumnDialogOpen(true)
+          }}
+          onEdit={() => {
+            setEditingColumnKey(columnKey)
+            setEditColumnName(columnDef.name)
+            setEditAiDescription(columnDef.prompt)
+            setIsEditColumnDialogOpen(true)
+          }}
+          onDelete={() => handleDeleteColumn(columnKey)}
+          onHide={() => {
+            setColumnVisibility((prev) => ({
+              ...prev,
+              [column.id]: !prev[column.id],
+            }))
+          }}
+          onSortAsc={() => {
+            column.toggleSorting(false)
+          }}
+          onSortDesc={() => {
+            column.toggleSorting(true)
+          }}
+          onFilter={() => {
+            const newFilterId = Date.now().toString()
+            setFilters((prev) => [...prev, {
+              id: newFilterId,
+              column: columnKey,
+              condition: "contains",
+              value: "",
+            }])
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <WandSparkles className="h-3 w-3" />
+            <span>{columnDef.name}</span>
+          </div>
+        </ColumnHeaderMenu>
+      ),
+      cell: ({ row }) => {
+        const contact = row.original as Contact
+        const result = analysisResults.get(columnKey)?.get(contact.phoneNumber)
+        const isLoading = analysisLoading.get(columnKey) || false
+        
+        if (isLoading) {
+          return <span className="text-muted-foreground">Analyzing...</span>
+        }
+        
+        if (result === undefined) {
+          return <span className="text-muted-foreground"></span>
+        }
+        
+        if (result === null) {
+          return <span className="text-destructive">Error</span>
+        }
+        
+        return <span className="text-sm">{result}</span>
+      },
+    }))
+    
+    // Create alert columns
+    const alertColumnDefs: ColumnDef<TData, TValue>[] = alerts.map((alert) => {
+      const alertId = alert.id
+      return {
+        accessorKey: `alert_${alertId}`,
+        header: ({ column }) => (
+          <ColumnHeaderMenu
+            columnId={column.id}
+            columnName={alert.name}
+            columnType="alert"
+            columnKey={`alert_${alertId}`}
+            onRename={() => {
+              setEditingAlertId(alert.id)
+              setEditAlertName(alert.name)
+              setEditAlertType(alert.type)
+              setEditAlertCondition(alert.condition)
+              setEditAlertEnabled(alert.enabled)
+              setIsEditAlertDialogOpen(true)
+            }}
+            onEdit={() => {
+              setEditingAlertId(alert.id)
+              setEditAlertName(alert.name)
+              setEditAlertType(alert.type)
+              setEditAlertCondition(alert.condition)
+              setEditAlertEnabled(alert.enabled)
+              setIsEditAlertDialogOpen(true)
+            }}
+            onDelete={() => handleDeleteAlert(alert.id)}
+            onHide={() => {
+              setColumnVisibility((prev) => ({
+                ...prev,
+                [column.id]: !prev[column.id],
+              }))
+            }}
+            onFilter={() => {
+              const newFilterId = Date.now().toString()
+              setFilters((prev) => [...prev, {
+                id: newFilterId,
+                column: `alert_${alertId}`,
+                condition: "contains",
+                value: "",
+              }])
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Bell className="h-3 w-3" />
+              <span>{alert.name}</span>
+            </div>
+          </ColumnHeaderMenu>
+        ),
+        cell: ({ row }) => {
+          const contact = row.original as Contact
+          const contactTriggers = alertTriggers.get(contact.phoneNumber) || []
+          const alertTrigger = contactTriggers.find(t => t.alertId === alertId)
+          
+          if (alertTrigger) {
+            return (
+              <Badge variant="destructive" className="flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                Triggered
+              </Badge>
+            )
+          }
+          
+          return <span className="text-muted-foreground text-sm">-</span>
+        },
+      }
+    })
+    
+    // Transform regular columns to add menu to headers (except phoneNumber which has special handling)
+    const transformedRegularColumns = initialColumnOrder.map((col) => {
+      const accessorKey = 'accessorKey' in col ? col.accessorKey : undefined
+      const columnId = col.id || String(accessorKey || "")
+      const isPhoneNumber = accessorKey === "phoneNumber"
+      
+      // Don't wrap phoneNumber column - it has special checkbox/button logic
+      if (isPhoneNumber) {
+        return col
+      }
+      
+      // Get the original header
+      const originalHeader = col.header
+      const columnName = typeof originalHeader === 'string' 
+        ? originalHeader 
+        : String(accessorKey || columnId).replace(/([A-Z])/g, ' $1').replace(/^./, (str: string) => str.toUpperCase())
+      
+      return {
+        ...col,
+        id: columnId,
+        header: (context: any) => {
+          const { column, table, header } = context
+          // If original header is a function, render it first to get the content
+          const headerContent = typeof originalHeader === 'function' 
+            ? originalHeader(context)
+            : originalHeader || columnName
+          
+          return (
+            <ColumnHeaderMenu
+              columnId={column.id}
+              columnName={columnName}
+              columnType="regular"
+              columnKey={String(accessorKey || "")}
+              onHide={() => {
+                setColumnVisibility((prev) => ({
+                  ...prev,
+                  [column.id]: !prev[column.id],
+                }))
+              }}
+              onSortAsc={() => {
+                column.toggleSorting(false)
+              }}
+              onSortDesc={() => {
+                column.toggleSorting(true)
+              }}
+              onFilter={() => {
+                const newFilterId = Date.now().toString()
+                setFilters((prev) => [...prev, {
+                  id: newFilterId,
+                  column: String(accessorKey || ""),
+                  condition: "contains",
+                  value: "",
+                }])
+              }}
+            >
+              {headerContent}
+            </ColumnHeaderMenu>
+          )
+        },
+      }
+    })
+    
+    return [...transformedRegularColumns, ...aiColumnDefs, ...alertColumnDefs]
+  }, [initialColumnOrder, aiColumns, analysisResults, analysisLoading, alerts, alertTriggers, ColumnHeaderMenu, setColumnVisibility])
   const [isAddColumnDialogOpen, setIsAddColumnDialogOpen] = React.useState(false)
   const [newColumnName, setNewColumnName] = React.useState("")
   const [aiDescription, setAiDescription] = React.useState("")
@@ -287,6 +790,35 @@ export function ContactsTable<TData, TValue>({
   
   // Phone number search state
   const [phoneSearch, setPhoneSearch] = React.useState("")
+  
+  // Popover state
+  const [filterPopoverOpen, setFilterPopoverOpen] = React.useState(false)
+  const [sortPopoverOpen, setSortPopoverOpen] = React.useState(false)
+  
+  // Alert management dialog state
+  const [isAddAlertDialogOpen, setIsAddAlertDialogOpen] = React.useState(false)
+  const [newAlertName, setNewAlertName] = React.useState("")
+  const [newAlertType, setNewAlertType] = React.useState<'ai' | 'keyword'>('keyword')
+  const [newAlertCondition, setNewAlertCondition] = React.useState("")
+  const [newAlertCellId, setNewAlertCellId] = React.useState<string | null>(null)
+  
+  // Fetch all cells for alert dialog
+  const { data: cells = [] } = useQuery({
+    queryKey: ['cells'],
+    queryFn: async () => {
+      const response = await fetch('/api/cells')
+      if (!response.ok) throw new Error('Failed to fetch cells')
+      return response.json()
+    },
+  })
+  
+  // Edit alert dialog state
+  const [isEditAlertDialogOpen, setIsEditAlertDialogOpen] = React.useState(false)
+  const [editingAlertId, setEditingAlertId] = React.useState<string>("")
+  const [editAlertName, setEditAlertName] = React.useState("")
+  const [editAlertType, setEditAlertType] = React.useState<'ai' | 'keyword'>('keyword')
+  const [editAlertCondition, setEditAlertCondition] = React.useState("")
+  const [editAlertEnabled, setEditAlertEnabled] = React.useState(true)
   
   // Filter state - array of filters
   type Filter = {
@@ -402,6 +934,103 @@ export function ContactsTable<TData, TValue>({
     
     loadAiColumns()
   }, [])
+  
+  // Load alerts on mount and when cell changes
+  React.useEffect(() => {
+    const loadAlerts = async () => {
+      if (!selectedCell) {
+        setAlerts([])
+        setAlertTriggers(new Map())
+        return
+      }
+      
+      try {
+        const response = await fetch(`/api/alerts?cellId=${encodeURIComponent(selectedCell.id)}`)
+        if (!response.ok) throw new Error('Failed to fetch alerts')
+        const alertsData = await response.json()
+        setAlerts(alertsData)
+        
+        // Load alert triggers for all contacts
+        const triggersResponse = await fetch(`/api/alerts/triggers?cellId=${encodeURIComponent(selectedCell.id)}&dismissed=false`)
+        if (triggersResponse.ok) {
+          const triggersData = await triggersResponse.json()
+          const triggersMap = new Map<string, Array<any>>()
+          
+          triggersData.forEach((trigger: any) => {
+            if (!triggersMap.has(trigger.phoneNumber)) {
+              triggersMap.set(trigger.phoneNumber, [])
+            }
+            triggersMap.get(trigger.phoneNumber)!.push({
+              id: trigger.id,
+              alertId: trigger.alertId,
+              alertName: trigger.alert?.name || 'Unknown Alert',
+              triggeredAt: trigger.triggeredAt,
+            })
+          })
+          
+          setAlertTriggers(triggersMap)
+        }
+      } catch (error) {
+        console.error('Error loading alerts:', error)
+      }
+    }
+    
+    loadAlerts()
+  }, [selectedCell?.id])
+  
+  // Check for new alert triggers during polling
+  const previousTriggerIdsRef = React.useRef<Set<string>>(new Set())
+  
+  React.useEffect(() => {
+    if (!selectedCell || !hasInitialData) return
+    
+    const checkNewTriggers = async () => {
+      try {
+        const triggersResponse = await fetch(`/api/alerts/triggers?cellId=${encodeURIComponent(selectedCell.id)}&dismissed=false`)
+        if (triggersResponse.ok) {
+          const triggersData = await triggersResponse.json()
+          const triggersMap = new Map<string, Array<any>>()
+          
+          triggersData.forEach((trigger: any) => {
+            if (!triggersMap.has(trigger.phoneNumber)) {
+              triggersMap.set(trigger.phoneNumber, [])
+            }
+            triggersMap.get(trigger.phoneNumber)!.push({
+              id: trigger.id,
+              alertId: trigger.alertId,
+              alertName: trigger.alert?.name || 'Unknown Alert',
+              triggeredAt: trigger.triggeredAt,
+            })
+            
+            // Check if this is a new trigger (not seen before)
+            const isNew = !previousTriggerIdsRef.current.has(trigger.id)
+            
+            if (isNew) {
+              // Show toast notification
+              toast.warning(`Alert: ${trigger.alert?.name || 'Unknown'}`, {
+                description: `Triggered for ${trigger.phoneNumber}`,
+                duration: 5000,
+              })
+              previousTriggerIdsRef.current.add(trigger.id)
+            }
+          })
+          
+          setAlertTriggers(triggersMap)
+        }
+      } catch (error) {
+        console.error('Error checking alert triggers:', error)
+      }
+    }
+    
+    // Check every 10 seconds (same as polling interval)
+    const intervalId = setInterval(checkNewTriggers, 10000)
+    return () => clearInterval(intervalId)
+  }, [selectedCell?.id, hasInitialData])
+  
+  // Reset trigger IDs when cell changes
+  React.useEffect(() => {
+    previousTriggerIdsRef.current.clear()
+  }, [selectedCell?.id])
 
   // Sync sorting state with sorts array
   React.useEffect(() => {
@@ -618,9 +1247,40 @@ export function ContactsTable<TData, TValue>({
     setIsStartConversationDialogOpen(true)
   }
 
-  const handleOpenMessageSheet = (phoneNumber: string) => {
+  const handleOpenMessageSheet = async (phoneNumber: string) => {
     setSheetPhoneNumber(phoneNumber)
     setIsMessageSheetOpen(true)
+    
+    // Mark this contact as seen in the database
+    const contact = contactsData.find((c) => c.phoneNumber === phoneNumber)
+    if (contact?.lastActivity && selectedCell) {
+      try {
+        await fetch('/api/contacts/mark-seen', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            phoneNumber,
+            lastSeenActivity: contact.lastActivity,
+            cellId: selectedCell.id,
+          }),
+        })
+        
+        // Update local state immediately for better UX
+        setContactsData((prev) =>
+          prev.map((c) =>
+            c.phoneNumber === phoneNumber
+              ? { ...c, lastSeenActivity: contact.lastActivity }
+              : c
+          )
+        )
+      } catch (error) {
+        console.error('Error marking contact as seen:', error)
+        // Don't block UI if API call fails
+      }
+    }
+    
     // Conversations will be fetched by useEffect when sheet opens
   }
 
@@ -695,6 +1355,34 @@ export function ContactsTable<TData, TValue>({
       setIsSendingConversation(false)
     }
   }
+  
+  const handleDismissAlerts = React.useCallback(async (phoneNumber: string) => {
+    try {
+      const response = await fetch('/api/alerts/triggers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          dismissAll: true,
+          phoneNumber,
+          cellId: selectedCell?.id,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to dismiss alerts')
+      }
+
+      setAlertTriggers((prev) => {
+        const updated = new Map(prev)
+        updated.delete(phoneNumber)
+        return updated
+      })
+    } catch (error) {
+      console.error('Error dismissing alerts:', error)
+    }
+  }, [selectedCell?.id])
 
   const table = useReactTable({
     data: filteredData,
@@ -706,15 +1394,27 @@ export function ContactsTable<TData, TValue>({
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
+    onColumnSizingChange: setColumnSizing,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    defaultColumn: {
+      minSize: 50,
+      size: 150,
+      maxSize: 1000,
+    },
       meta: {
         onStartConversation: handleStartConversation,
         onOpenMessageSheet: handleOpenMessageSheet,
+        unreadPhoneNumbers: unreadPhoneNumbers,
+        alertTriggers: alertTriggers,
+        onDismissAlerts: handleDismissAlerts,
       },
     state: {
       sorting,
       columnFilters,
       columnVisibility,
       rowSelection,
+      columnSizing,
     },
   })
 
@@ -1061,6 +1761,160 @@ export function ContactsTable<TData, TValue>({
       })
     }
   }
+  
+  const handleDeleteColumn = async (columnKey: string) => {
+    const columnName = aiColumns.get(columnKey)?.name || columnKey
+    if (!confirm(`Are you sure you want to delete the "${columnName}" column?`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/ai-columns?columnKey=${encodeURIComponent(columnKey)}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to delete column')
+      }
+
+      // Remove from state
+      setAiColumns((prev) => {
+        const newMap = new Map(prev)
+        newMap.delete(columnKey)
+        return newMap
+      })
+      
+      // Remove results
+      setAnalysisResults((prev) => {
+        const newMap = new Map(prev)
+        newMap.delete(columnKey)
+        return newMap
+      })
+      
+      toast.success('Column deleted', {
+        description: `The "${columnName}" column has been deleted`,
+      })
+    } catch (error) {
+      console.error('Error deleting column:', error)
+      toast.error('Failed to delete column', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+  
+  // Alert management handlers
+  const handleAddAlert = async () => {
+    if (!newAlertName.trim() || !newAlertCondition.trim() || !newAlertCellId) return
+
+    try {
+      const response = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newAlertName,
+          type: newAlertType,
+          condition: newAlertCondition,
+          cellId: newAlertCellId,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create alert')
+      }
+
+      const alert = await response.json()
+      setAlerts((prev) => [...prev, alert])
+      
+      setNewAlertName("")
+      setNewAlertCondition("")
+      setNewAlertType('keyword')
+      setNewAlertCellId(null)
+      setIsAddAlertDialogOpen(false)
+      
+      toast.success('Alert created', {
+        description: `Alert "${alert.name}" has been created`,
+      })
+    } catch (error) {
+      console.error('Error creating alert:', error)
+      toast.error('Failed to create alert', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+  
+  const handleEditAlert = async () => {
+    if (!editingAlertId || !editAlertName.trim() || !editAlertCondition.trim()) return
+
+    try {
+      const response = await fetch('/api/alerts', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: editingAlertId,
+          name: editAlertName,
+          type: editAlertType,
+          condition: editAlertCondition,
+          enabled: editAlertEnabled,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update alert')
+      }
+
+      const alert = await response.json()
+      setAlerts((prev) => prev.map(a => a.id === editingAlertId ? alert : a))
+      
+      setEditingAlertId("")
+      setEditAlertName("")
+      setEditAlertCondition("")
+      setEditAlertType('keyword')
+      setEditAlertEnabled(true)
+      setIsEditAlertDialogOpen(false)
+      
+      toast.success('Alert updated', {
+        description: `Alert "${alert.name}" has been updated`,
+      })
+    } catch (error) {
+      console.error('Error updating alert:', error)
+      toast.error('Failed to update alert', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+  
+  const handleDeleteAlert = async (alertId: string) => {
+    const alert = alerts.find(a => a.id === alertId)
+    const alertName = alert?.name || 'this alert'
+    
+    if (!confirm(`Are you sure you want to delete "${alertName}"?`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/alerts?id=${encodeURIComponent(alertId)}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to delete alert')
+      }
+
+      setAlerts((prev) => prev.filter(a => a.id !== alertId))
+      toast.success('Alert deleted', {
+        description: `"${alertName}" has been deleted`,
+      })
+    } catch (error) {
+      console.error('Error deleting alert:', error)
+      toast.error('Failed to delete alert', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
 
   // Show message if no cell is selected
   if (!selectedCell) {
@@ -1093,389 +1947,27 @@ export function ContactsTable<TData, TValue>({
 
   return (
     <div className="space-y-4">
-      {/* Phone Number Search Bar */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search phone number..."
-          value={phoneSearch}
-          onChange={(e) => setPhoneSearch(e.target.value)}
-          className="pl-9"
-        />
-        {phoneSearch && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-            onClick={() => setPhoneSearch("")}
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">Clear search</span>
-          </Button>
-        )}
-      </div>
-
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-2 flex-1">
-          {filters.map((filter) => (
-            <div key={filter.id} className="flex items-center gap-2">
-              <Select
-                value={filter.column}
-                onValueChange={(value) => updateFilter(filter.id, "column", value)}
-              >
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="Select column" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="phoneNumber">Phone Number</SelectItem>
-                  <SelectItem value="userId">User ID</SelectItem>
-                  <SelectItem value="lastMessage">Last Message</SelectItem>
-                  <SelectItem value="status">Status</SelectItem>
-                  <SelectItem value="numberOfMessages"># of Messages</SelectItem>
-                  <SelectItem value="started">Started</SelectItem>
-                  <SelectItem value="lastActivity">Last Activity</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select
-                value={filter.condition}
-                onValueChange={(value) => updateFilter(filter.id, "condition", value)}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Select condition" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="contains">Contains</SelectItem>
-                  <SelectItem value="does not contain">Does not contain</SelectItem>
-                  <SelectItem value="starts with">Starts with</SelectItem>
-                  <SelectItem value="ends with">Ends with</SelectItem>
-                  <SelectItem value="equals">Equals</SelectItem>
-                  <SelectItem value="not equals">Not equals</SelectItem>
-                  <SelectItem value="is empty">Is empty</SelectItem>
-                  <SelectItem value="is not empty">Is not empty</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Input
-                placeholder="Filter value..."
-                value={filter.value}
-                onChange={(event) => updateFilter(filter.id, "value", event.target.value)}
-                className="w-[200px]"
-                disabled={
-                  filter.condition === "is empty" || filter.condition === "is not empty"
-                }
-              />
-
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removeFilter(filter.id)}
-                className="h-10 w-10"
-              >
-                <X className="h-4 w-4" />
-                <span className="sr-only">Remove filter</span>
-              </Button>
-            </div>
-          ))}
-          {sorts.map((sort) => (
-            <div key={sort.column} className="flex items-center gap-2">
-              <Select
-                value={sort.column}
-                onValueChange={(value) => updateSort(sort.column, "column", value)}
-              >
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="Select column" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="phoneNumber">Phone Number</SelectItem>
-                  <SelectItem value="userId">User ID</SelectItem>
-                  <SelectItem value="lastMessage">Last Message</SelectItem>
-                  <SelectItem value="status">Status</SelectItem>
-                  <SelectItem value="numberOfMessages"># of Messages</SelectItem>
-                  <SelectItem value="started">Started</SelectItem>
-                  <SelectItem value="lastActivity">Last Activity</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select
-                value={sort.direction}
-                onValueChange={(value) => updateSort(sort.column, "direction", value as "asc" | "desc")}
-              >
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="Direction" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="asc">
-                    <div className="flex items-center gap-2">
-                      <ArrowUp className="h-3 w-3" />
-                      Ascending
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="desc">
-                    <div className="flex items-center gap-2">
-                      <ArrowDown className="h-3 w-3" />
-                      Descending
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removeSort(sort.column)}
-                className="h-10 w-10"
-              >
-                <X className="h-4 w-4" />
-                <span className="sr-only">Remove sort</span>
-              </Button>
-            </div>
-          ))}
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={addFilter}>
-              <Funnel className=" h-4 w-4" />
-              Filter
+      {/* Phone Number Search Bar and Action Buttons */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search phone number..."
+            value={phoneSearch}
+            onChange={(e) => setPhoneSearch(e.target.value)}
+            className="pl-9"
+          />
+          {phoneSearch && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+              onClick={() => setPhoneSearch("")}
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Clear search</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={addSort}>
-              <ArrowUpDown className=" h-4 w-4" />
-              Sort
-            </Button>
-            {selectedCount > 0 && (
-              <>
-                <Button onClick={handleBroadcast}>
-                  {getBroadcastButtonText()}
-                </Button>
-                {aiColumns.size > 0 && (
-                  <Button onClick={() => setIsRunAnalysisDialogOpen(true)}>
-                    Run Analysis
-                  </Button>
-                )}
-                <Button variant="destructive" onClick={handleDelete}>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
-                </Button>
-                <Dialog open={isBroadcastDialogOpen} onOpenChange={setIsBroadcastDialogOpen}>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Broadcast Message</DialogTitle>
-                      <DialogDescription>
-                        {allSelected
-                          ? "Send a message to all contacts"
-                          : selectedCount === 1
-                            ? `Send a message to ${(selectedRows[0].original as Contact).phoneNumber}`
-                            : `Send a message to ${selectedCount} selected contacts`}
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="broadcast-message">Message</Label>
-                        <Textarea
-                          id="broadcast-message"
-                          placeholder="Type your message here..."
-                          value={broadcastMessage}
-                          onChange={(e) => setBroadcastMessage(e.target.value)}
-                          rows={6}
-                          className="resize-none"
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setIsBroadcastDialogOpen(false)
-                          setBroadcastMessage("")
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleSendBroadcast}
-                        disabled={!broadcastMessage.trim() || sendMutation.isPending}
-                      >
-                        {sendMutation.isPending ? "Sending..." : "Send Broadcast"}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </>
-            )}
-                <Dialog open={isRunAnalysisDialogOpen} onOpenChange={setIsRunAnalysisDialogOpen}>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Run AI Analysis</DialogTitle>
-                      <DialogDescription>
-                        Select an AI analysis column to run on {selectedCount === 1 
-                          ? `contact ${(selectedRows[0].original as Contact).phoneNumber}`
-                          : `${selectedCount} selected contacts`}
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="analysis-column">Analysis Column</Label>
-                        <Select
-                          value={selectedAnalysisColumn}
-                          onValueChange={setSelectedAnalysisColumn}
-                        >
-                          <SelectTrigger id="analysis-column">
-                            <SelectValue placeholder="Select a column to analyze" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from(aiColumns.entries()).map(([key, column]) => (
-                              <SelectItem key={key} value={key}>
-                                {column.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setIsRunAnalysisDialogOpen(false)
-                          setSelectedAnalysisColumn("")
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleRunAnalysis}
-                        disabled={!selectedAnalysisColumn || isRunningAnalysis}
-                      >
-                        {isRunningAnalysis ? "Analyzing..." : "Run Analysis"}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-                <Dialog open={isStartConversationDialogOpen} onOpenChange={setIsStartConversationDialogOpen}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Start Conversation</DialogTitle>
-                  <DialogDescription>
-                    Add a phone number and send a message to start a new conversation.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="conversation-phone">Phone Number</Label>
-                    <Input
-                      id="conversation-phone"
-                      placeholder="+1 (555) 123-4567"
-                      value={conversationPhoneNumber}
-                      onChange={(e) => setConversationPhoneNumber(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="conversation-message">Message</Label>
-                    <Textarea
-                      id="conversation-message"
-                      placeholder="Type your message here..."
-                      value={conversationMessage}
-                      onChange={(e) => setConversationMessage(e.target.value)}
-                      rows={6}
-                      className="resize-none"
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setIsStartConversationDialogOpen(false)
-                      setConversationPhoneNumber("")
-                      setConversationMessage("Hello! I'd like to start a conversation with you.")
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    onClick={handleSendConversation}
-                    disabled={!(String(conversationPhoneNumber || "").trim()) || !(String(conversationMessage || "").trim()) || isSendingConversation}
-                  >
-                    {isSendingConversation ? "Sending..." : "Start Conversation"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <Sheet open={isMessageSheetOpen} onOpenChange={setIsMessageSheetOpen}>
-              <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
-                <div className="border-b p-4">
-                  <SheetHeader>
-                    <SheetTitle>Conversation</SheetTitle>
-                    <SheetDescription>
-                      Thread for {sheetPhoneNumber || "this contact"}
-                    </SheetDescription>
-                  </SheetHeader>
-                </div>
-                
-                {/* Message area */}
-                <div ref={messageAreaRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {conversationMessages.length === 0 ? (
-                    <div className="text-center text-muted-foreground py-8">
-                      <p className="text-sm mb-2">No messages yet</p>
-                      <p className="text-xs">Start the conversation by sending a message below</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="text-xs text-muted-foreground text-center mb-4">
-                        Inbound (customer) on the left • Outbound (you) on the right
-                      </div>
-                      {conversationMessages.map((msg) => (
-                        <div
-                          key={msg.id}
-                          className={`flex ${msg.isInbound ? "justify-start" : "justify-end"}`}
-                        >
-                          <div
-                            className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                              msg.isInbound
-                                ? "bg-muted"
-                                : "bg-primary text-primary-foreground"
-                            }`}
-                          >
-                            <p className="text-sm">{msg.text}</p>
-                            <p className={`text-xs mt-1 ${
-                              msg.isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
-                            }`}>
-                              {msg.timestamp}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-                
-                {/* Input area */}
-                <div className="border-t p-4">
-                  <div className="flex gap-2">
-                    <Textarea
-                      placeholder="Type your message here..."
-                      value={sheetMessage}
-                      onChange={(e) => setSheetMessage(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault()
-                          handleSendSheetMessage()
-                        }
-                      }}
-                      rows={3}
-                      className="resize-none flex-1"
-                    />
-                    <Button
-                      onClick={handleSendSheetMessage}
-                      disabled={!sheetMessage.trim()}
-                      className="self-end"
-                    >
-                      Send
-                    </Button>
-                  </div>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <DropdownMenu>
@@ -1498,15 +1990,438 @@ export function ContactsTable<TData, TValue>({
             <Plus className="mr-2 h-4 w-4" />
             Start conversation
           </Button>
+          <Dialog open={isAddColumnDialogOpen} onOpenChange={setIsAddColumnDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <WandSparkles className="mr-2 h-4 w-4" />
+                Add analysis
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Analysis</DialogTitle>
+                <DialogDescription>
+                  Add a new AI analysis column to the table. Describe what the AI should check or analyze.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="column-name">Column Name</Label>
+                  <Input
+                    id="column-name"
+                    placeholder="e.g., Sentiment Analysis"
+                    value={newColumnName}
+                    onChange={(e) => setNewColumnName(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="ai-description">What should the AI check?</Label>
+                  <Textarea
+                    id="ai-description"
+                    placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
+                    value={aiDescription}
+                    onChange={(e) => setAiDescription(e.target.value)}
+                    rows={4}
+                    className="resize-none"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="submit"
+                  onClick={handleAddColumn}
+                  disabled={!newColumnName.trim() || !aiDescription.trim()}
+                >
+                  Add AI Analysis
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={isAddAlertDialogOpen} onOpenChange={setIsAddAlertDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Bell className="mr-2 h-4 w-4" />
+                Add Alert
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Alert</DialogTitle>
+                <DialogDescription>
+                  Create a new alert that will notify you when specific conditions are met in incoming messages.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="alert-name">Alert Name</Label>
+                  <Input
+                    id="alert-name"
+                    placeholder="e.g., Urgent Request"
+                    value={newAlertName}
+                    onChange={(e) => setNewAlertName(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="alert-type">Alert Type</Label>
+                  <Select value={newAlertType} onValueChange={(value: 'ai' | 'keyword') => setNewAlertType(value)}>
+                    <SelectTrigger id="alert-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="keyword">Keyword Match</SelectItem>
+                      <SelectItem value="ai">AI Evaluation</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="alert-condition">
+                    {newAlertType === 'keyword' ? 'Keywords (comma-separated)' : 'AI Condition'}
+                  </Label>
+                  <Textarea
+                    id="alert-condition"
+                    placeholder={
+                      newAlertType === 'keyword'
+                        ? 'e.g., urgent, emergency, help'
+                        : 'e.g., Check if the message indicates an urgent request or emergency situation'
+                    }
+                    value={newAlertCondition}
+                    onChange={(e) => setNewAlertCondition(e.target.value)}
+                    rows={4}
+                    className="resize-none"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="alert-cell">Cell</Label>
+                  <Select value={newAlertCellId || ""} onValueChange={setNewAlertCellId}>
+                    <SelectTrigger id="alert-cell">
+                      <SelectValue placeholder="Select a cell" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cells.map((cell: { id: string; name: string }) => (
+                        <SelectItem key={cell.id} value={cell.id}>
+                          {cell.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsAddAlertDialogOpen(false)
+                    setNewAlertName("")
+                    setNewAlertCondition("")
+                    setNewAlertType("keyword")
+                    setNewAlertCellId(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleAddAlert}
+                  disabled={!newAlertName.trim() || !newAlertCondition.trim() || !newAlertCellId}
+                >
+                  Add Alert
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
+
+      <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant={filters.length > 0 ? "default" : "outline"} size="sm">
+                    <Funnel className="h-4 w-4 mr-2" />
+                    {filters.length > 0 ? `Filtered by ${filters.length} ${filters.length === 1 ? 'field' : 'fields'}` : 'Filter'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80" align="start">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-sm">Filters</h4>
+                      {filters.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No filters applied</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {filters.map((filter) => (
+                            <div key={filter.id} className="flex items-center gap-2 p-2 border rounded-md">
+                              <Select
+                                value={filter.column}
+                                onValueChange={(value) => updateFilter(filter.id, "column", value)}
+                              >
+                                <SelectTrigger className="w-[140px] h-8">
+                                  <SelectValue placeholder="Select column" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="phoneNumber">Phone Number</SelectItem>
+                                  <SelectItem value="userId">User ID</SelectItem>
+                                  <SelectItem value="lastMessage">Last Message</SelectItem>
+                                  <SelectItem value="status">Status</SelectItem>
+                                  <SelectItem value="numberOfMessages"># of Messages</SelectItem>
+                                  <SelectItem value="started">Started</SelectItem>
+                                  <SelectItem value="lastActivity">Last Activity</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Select
+                                value={filter.condition}
+                                onValueChange={(value) => updateFilter(filter.id, "condition", value)}
+                              >
+                                <SelectTrigger className="w-[140px] h-8">
+                                  <SelectValue placeholder="Condition" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="contains">Contains</SelectItem>
+                                  <SelectItem value="does not contain">Does not contain</SelectItem>
+                                  <SelectItem value="starts with">Starts with</SelectItem>
+                                  <SelectItem value="ends with">Ends with</SelectItem>
+                                  <SelectItem value="equals">Equals</SelectItem>
+                                  <SelectItem value="not equals">Not equals</SelectItem>
+                                  <SelectItem value="is empty">Is empty</SelectItem>
+                                  <SelectItem value="is not empty">Is not empty</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Input
+                                placeholder="Value..."
+                                value={filter.value}
+                                onChange={(event) => updateFilter(filter.id, "value", event.target.value)}
+                                className="w-[120px] h-8"
+                                disabled={
+                                  filter.condition === "is empty" || filter.condition === "is not empty"
+                                }
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeFilter(filter.id)}
+                                className="h-8 w-8"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        addFilter()
+                      }}
+                      className="w-full"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add filter
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Popover open={sortPopoverOpen} onOpenChange={setSortPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant={sorts.length > 0 ? "default" : "outline"} size="sm">
+                    <ArrowUpDown className="h-4 w-4 mr-2" />
+                    {sorts.length > 0 ? `Sorted by ${sorts[0].column}` : 'Sort'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80" align="start">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-sm">Sorts</h4>
+                      {sorts.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No sorts applied</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {sorts.map((sort) => (
+                            <div key={sort.column} className="flex items-center gap-2 p-2 border rounded-md">
+                              <Select
+                                value={sort.column}
+                                onValueChange={(value) => updateSort(sort.column, "column", value)}
+                              >
+                                <SelectTrigger className="w-[140px] h-8">
+                                  <SelectValue placeholder="Select column" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="phoneNumber">Phone Number</SelectItem>
+                                  <SelectItem value="userId">User ID</SelectItem>
+                                  <SelectItem value="lastMessage">Last Message</SelectItem>
+                                  <SelectItem value="status">Status</SelectItem>
+                                  <SelectItem value="numberOfMessages"># of Messages</SelectItem>
+                                  <SelectItem value="started">Started</SelectItem>
+                                  <SelectItem value="lastActivity">Last Activity</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Select
+                                value={sort.direction}
+                                onValueChange={(value) => updateSort(sort.column, "direction", value as "asc" | "desc")}
+                              >
+                                <SelectTrigger className="w-[120px] h-8">
+                                  <SelectValue placeholder="Direction" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="asc">
+                                    <div className="flex items-center gap-2">
+                                      <ArrowUp className="h-3 w-3" />
+                                      Ascending
+                                    </div>
+                                  </SelectItem>
+                                  <SelectItem value="desc">
+                                    <div className="flex items-center gap-2">
+                                      <ArrowDown className="h-3 w-3" />
+                                      Descending
+                                    </div>
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeSort(sort.column)}
+                                className="h-8 w-8"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        addSort()
+                      }}
+                      className="w-full"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add sort
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+            {selectedCount > 0 && (
+              <div className="flex items-center gap-2">
+                <Button onClick={handleBroadcast}>
+                  {getBroadcastButtonText()}
+                </Button>
+                {aiColumns.size > 0 && (
+                  <Button onClick={() => setIsRunAnalysisDialogOpen(true)}>
+                    Run Analysis
+                  </Button>
+                )}
+                <Button variant="destructive" onClick={handleDelete}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </Button>
+              </div>
+            )}
+      </div>
+      <Dialog open={isBroadcastDialogOpen} onOpenChange={setIsBroadcastDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Broadcast Message</DialogTitle>
+            <DialogDescription>
+              {allSelected
+                ? "Send a message to all contacts"
+                : selectedCount === 1
+                  ? `Send a message to ${(selectedRows[0].original as Contact).phoneNumber}`
+                  : `Send a message to ${selectedCount} selected contacts`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="broadcast-message">Message</Label>
+              <Textarea
+                id="broadcast-message"
+                placeholder="Type your message here..."
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                rows={6}
+                className="resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsBroadcastDialogOpen(false)
+                setBroadcastMessage("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendBroadcast}
+              disabled={!broadcastMessage.trim() || sendMutation.isPending}
+            >
+              {sendMutation.isPending ? "Sending..." : "Send Broadcast"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isRunAnalysisDialogOpen} onOpenChange={setIsRunAnalysisDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Run AI Analysis</DialogTitle>
+            <DialogDescription>
+              Select an AI analysis column to run on {selectedCount === 1 
+                ? `contact ${(selectedRows[0].original as Contact).phoneNumber}`
+                : `${selectedCount} selected contacts`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="analysis-column">Analysis Column</Label>
+              <Select
+                value={selectedAnalysisColumn}
+                onValueChange={setSelectedAnalysisColumn}
+              >
+                <SelectTrigger id="analysis-column">
+                  <SelectValue placeholder="Select a column to analyze" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from(aiColumns.entries()).map(([key, column]) => (
+                    <SelectItem key={key} value={key}>
+                      {column.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsRunAnalysisDialogOpen(false)
+                setSelectedAnalysisColumn("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRunAnalysis}
+              disabled={!selectedAnalysisColumn || isRunningAnalysis}
+            >
+              {isRunningAnalysis ? "Analyzing..." : "Run Analysis"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div ref={tableContainerRef} className="overflow-x-auto rounded-md border">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
-          <Table>
+          <Table style={{ tableLayout: 'fixed', width: '100%' }}>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => {
                 // Filter out Phone Number and non-sortable columns from SortableContext
@@ -1539,19 +2454,33 @@ export function ContactsTable<TData, TValue>({
                         const isSticky = isPhoneNumber
                         // Phone Number is at the left edge
                         const leftOffset = isSticky ? "0" : undefined
+                        const headerColor = columnColors[header.id] || ""
+                        const headerTextColor = headerColor ? getContrastColor(headerColor) : undefined
                         
                         return (
                           <TableHead 
                             key={header.id}
                             className={cn(
-                              isSticky ? "sticky z-10 bg-background border-r" : "border-r"
+                              isSticky ? "sticky z-10 border-r" : "border-r",
+                              isSticky && !headerColor && "bg-background",
+                              "relative overflow-hidden",
+                              !headerColor && "hover:bg-muted/50"
                             )}
-                            style={isSticky ? { 
-                              left: leftOffset,
-                              ...(isScrolled && {
-                                boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
-                              })
-                            } : undefined}
+                            style={{
+                              ...(isSticky ? { 
+                                left: leftOffset,
+                                ...(isScrolled && {
+                                  boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
+                                }),
+                              } : {}),
+                              width: header.getSize(),
+                              minWidth: header.column.columnDef.minSize,
+                              maxWidth: header.column.columnDef.maxSize,
+                              ...(headerColor ? {
+                                backgroundColor: headerColor,
+                                color: headerTextColor,
+                              } : {}),
+                            }}
                           >
                             {header.isPlaceholder ? null : (
                               isSortable ? (
@@ -1559,133 +2488,203 @@ export function ContactsTable<TData, TValue>({
                                   id={columnId}
                                   isPhoneNumber={false}
                                 >
+                                  <div className="overflow-hidden text-ellipsis whitespace-nowrap">
+                                    {flexRender(
+                                      header.column.columnDef.header,
+                                      header.getContext()
+                                    )}
+                                  </div>
+                                </SortableColumnHeader>
+                              ) : (
+                                <div className="overflow-hidden text-ellipsis whitespace-nowrap">
                                   {flexRender(
                                     header.column.columnDef.header,
                                     header.getContext()
                                   )}
-                                </SortableColumnHeader>
-                              ) : (
-                                flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext()
-                                )
+                                </div>
                               )
+                            )}
+                            {header.column.getCanResize() && (
+                              <div
+                                onMouseDown={(e) => {
+                                  e.stopPropagation()
+                                  const handler = header.getResizeHandler()
+                                  if (handler) {
+                                    handler(e)
+                                  }
+                                }}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation()
+                                  const handler = header.getResizeHandler()
+                                  if (handler) {
+                                    handler(e)
+                                  }
+                                }}
+                                className={cn(
+                                  "absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none z-20",
+                                  "bg-border hover:bg-primary/50 transition-colors",
+                                  "hover:w-1.5",
+                                  header.column.getIsResizing() && "bg-primary"
+                                )}
+                              />
                             )}
                           </TableHead>
                         )
                       })}
                     </SortableContext>
-                  <TableHead>
-                    <Dialog open={isAddColumnDialogOpen} onOpenChange={setIsAddColumnDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 px-2">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add AI analysis
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Add AI Analysis</DialogTitle>
-                          <DialogDescription>
-                            Add a new AI analysis column to the table. Describe what the AI should check or analyze.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid gap-2">
-                            <Label htmlFor="column-name">Column Name</Label>
-                            <Input
-                              id="column-name"
-                              placeholder="e.g., Sentiment Analysis"
-                              value={newColumnName}
-                              onChange={(e) => setNewColumnName(e.target.value)}
-                            />
-                          </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="ai-description">What should the AI check?</Label>
-                            <Textarea
-                              id="ai-description"
-                              placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
-                              value={aiDescription}
-                              onChange={(e) => setAiDescription(e.target.value)}
-                              rows={4}
-                              className="resize-none"
-                            />
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button
-                            type="submit"
-                            onClick={handleAddColumn}
-                            disabled={!newColumnName.trim() || !aiDescription.trim()}
-                          >
-                            Add AI Analysis
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                    <Dialog open={isEditColumnDialogOpen} onOpenChange={setIsEditColumnDialogOpen}>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Edit AI Analysis</DialogTitle>
-                          <DialogDescription>
-                            Update the column name and AI analysis prompt.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid gap-2">
-                            <Label htmlFor="edit-column-name">Column Name</Label>
-                            <Input
-                              id="edit-column-name"
-                              placeholder="e.g., Sentiment Analysis"
-                              value={editColumnName}
-                              onChange={(e) => setEditColumnName(e.target.value)}
-                            />
-                          </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="edit-ai-description">What should the AI check?</Label>
-                            <Textarea
-                              id="edit-ai-description"
-                              placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
-                              value={editAiDescription}
-                              onChange={(e) => setEditAiDescription(e.target.value)}
-                              rows={4}
-                              className="resize-none"
-                            />
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              setIsEditColumnDialogOpen(false)
-                              setEditingColumnKey("")
-                              setEditColumnName("")
-                              setEditAiDescription("")
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="submit"
-                            onClick={handleEditColumn}
-                            disabled={!editColumnName.trim() || !editAiDescription.trim()}
-                          >
-                            Save Changes
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  </TableHead>
                   </TableRow>
                 )
               })}
             </TableHeader>
+            {/* Edit Column Dialog */}
+            <Dialog open={isEditColumnDialogOpen} onOpenChange={setIsEditColumnDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit AI Analysis</DialogTitle>
+                  <DialogDescription>
+                    Update the column name and AI analysis prompt.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-column-name">Column Name</Label>
+                    <Input
+                      id="edit-column-name"
+                      placeholder="e.g., Sentiment Analysis"
+                      value={editColumnName}
+                      onChange={(e) => setEditColumnName(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-ai-description">What should the AI check?</Label>
+                    <Textarea
+                      id="edit-ai-description"
+                      placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
+                      value={editAiDescription}
+                      onChange={(e) => setEditAiDescription(e.target.value)}
+                      rows={4}
+                      className="resize-none"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsEditColumnDialogOpen(false)
+                      setEditingColumnKey("")
+                      setEditColumnName("")
+                      setEditAiDescription("")
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleEditColumn}
+                    disabled={!editColumnName.trim() || !editAiDescription.trim()}
+                  >
+                    Save Changes
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            {/* Alert Management Dialogs */}
+            <Dialog open={isEditAlertDialogOpen} onOpenChange={setIsEditAlertDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Alert</DialogTitle>
+                  <DialogDescription>
+                    Update the alert name, type, and condition.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-alert-name">Alert Name</Label>
+                    <Input
+                      id="edit-alert-name"
+                      placeholder="e.g., Customer Frustration"
+                      value={editAlertName}
+                      onChange={(e) => setEditAlertName(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-alert-type">Alert Type</Label>
+                    <Select value={editAlertType} onValueChange={(value) => setEditAlertType(value as 'ai' | 'keyword')}>
+                      <SelectTrigger id="edit-alert-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="keyword">Keyword Matching</SelectItem>
+                        <SelectItem value="ai">AI Evaluation</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-alert-condition">
+                      {editAlertType === 'keyword' ? 'Keywords (comma-separated)' : 'AI Condition'}
+                    </Label>
+                    {editAlertType === 'keyword' ? (
+                      <Input
+                        id="edit-alert-condition"
+                        placeholder="e.g., refund, cancel, complaint"
+                        value={editAlertCondition}
+                        onChange={(e) => setEditAlertCondition(e.target.value)}
+                      />
+                    ) : (
+                      <Textarea
+                        id="edit-alert-condition"
+                        placeholder="e.g., Alert me if the customer seems frustrated or wants to cancel"
+                        value={editAlertCondition}
+                        onChange={(e) => setEditAlertCondition(e.target.value)}
+                        rows={4}
+                        className="resize-none"
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="edit-alert-enabled"
+                      checked={editAlertEnabled}
+                      onChange={(e) => setEditAlertEnabled(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <Label htmlFor="edit-alert-enabled" className="cursor-pointer">
+                      Enabled
+                    </Label>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsEditAlertDialogOpen(false)
+                      setEditingAlertId("")
+                      setEditAlertName("")
+                      setEditAlertCondition("")
+                      setEditAlertType('keyword')
+                      setEditAlertEnabled(true)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleEditAlert}
+                    disabled={!editAlertName.trim() || !editAlertCondition.trim()}
+                  >
+                    Save Changes
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
             <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  onClick={() => row.toggleSelected()}
+                  className="cursor-pointer"
                 >
                   {row.getVisibleCells().map((cell, cellIndex) => {
                     const accessorKey = 'accessorKey' in cell.column.columnDef ? cell.column.columnDef.accessorKey : undefined
@@ -1695,24 +2694,38 @@ export function ContactsTable<TData, TValue>({
                     const isSticky = isPhoneNumber
                     // Phone Number is at the left edge
                     const leftOffset = isSticky ? "0" : undefined
+                    const cellColor = columnColors[cell.column.id] || ""
+                    const cellBackgroundColor = cellColor ? getColorWithOpacity(cellColor, 0.1) : undefined
                     
                     return (
                       <TableCell 
                         key={cell.id}
                         className={cn(
-                          isSticky ? "sticky z-10 bg-background border-r" : "border-r"
+                          isSticky ? "sticky z-10 border-r" : "border-r",
+                          isSticky && !cellBackgroundColor && "bg-background",
+                          "overflow-hidden"
                         )}
-                        style={isSticky ? { 
-                          left: leftOffset,
-                          ...(isScrolled && {
-                            boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
-                          })
-                        } : undefined}
+                        style={{
+                          ...(isSticky ? { 
+                            left: leftOffset,
+                            ...(isScrolled && {
+                              boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
+                            }),
+                          } : {}),
+                          width: cell.column.getSize(),
+                          minWidth: cell.column.columnDef.minSize,
+                          maxWidth: cell.column.columnDef.maxSize,
+                          ...(cellBackgroundColor ? {
+                            backgroundColor: cellBackgroundColor,
+                          } : {}),
+                        }}
                       >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
+                        <div className="min-w-0 overflow-hidden">
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </div>
                       </TableCell>
                     )
                   })}
@@ -1747,26 +2760,40 @@ export function ContactsTable<TData, TValue>({
                     const isNumberOfMessages = accessorKey === "numberOfMessages"
                     const isSticky = isPhoneNumber
                     const leftOffset = isSticky ? "0" : undefined
+                    const footerColor = columnColors[header.id] || ""
+                    const footerBackgroundColor = footerColor ? getColorWithOpacity(footerColor, 0.1) : undefined
                     
                     return (
                       <TableCell
                         key={header.id}
                         className={cn(
-                          isSticky ? "sticky z-10 bg-muted/50 border-r" : "border-r",
-                          index === 0 ? "font-medium" : ""
+                          isSticky ? "sticky z-10 border-r" : "border-r",
+                          isSticky && !footerBackgroundColor && "bg-muted/50",
+                          index === 0 ? "font-medium" : "",
+                          "overflow-hidden"
                         )}
-                        style={isSticky ? { 
-                          left: leftOffset,
-                          ...(isScrolled && {
-                            boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
-                          })
-                        } : undefined}
+                        style={{
+                          ...(isSticky ? { 
+                            left: leftOffset,
+                            ...(isScrolled && {
+                              boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
+                            }),
+                          } : {}),
+                          width: header.getSize(),
+                          minWidth: header.column.columnDef.minSize,
+                          maxWidth: header.column.columnDef.maxSize,
+                          ...(footerBackgroundColor ? {
+                            backgroundColor: footerBackgroundColor,
+                          } : {}),
+                        }}
                       >
-                        {isPhoneNumber ? (
-                          <span>Total: {rows.length}</span>
-                        ) : isNumberOfMessages ? (
-                          <span>Avg: {averageMessages}</span>
-                        ) : null}
+                        <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                          {isPhoneNumber ? (
+                            <span>Total: {rows.length}</span>
+                          ) : isNumberOfMessages ? (
+                            <span>Avg: {averageMessages}</span>
+                          ) : null}
+                        </div>
                       </TableCell>
                     )
                   })
@@ -1776,6 +2803,132 @@ export function ContactsTable<TData, TValue>({
           </Table>
         </DndContext>
       </div>
+      <Dialog open={isStartConversationDialogOpen} onOpenChange={setIsStartConversationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start Conversation</DialogTitle>
+            <DialogDescription>
+              Add a phone number and send a message to start a new conversation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="conversation-phone">Phone Number</Label>
+              <Input
+                id="conversation-phone"
+                placeholder="+1 (555) 123-4567"
+                value={conversationPhoneNumber}
+                onChange={(e) => setConversationPhoneNumber(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="conversation-message">Message</Label>
+              <Textarea
+                id="conversation-message"
+                placeholder="Type your message here..."
+                value={conversationMessage}
+                onChange={(e) => setConversationMessage(e.target.value)}
+                rows={6}
+                className="resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsStartConversationDialogOpen(false)
+                setConversationPhoneNumber("")
+                setConversationMessage("Hello! I'd like to start a conversation with you.")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              onClick={handleSendConversation}
+              disabled={!(String(conversationPhoneNumber || "").trim()) || !(String(conversationMessage || "").trim()) || isSendingConversation}
+            >
+              {isSendingConversation ? "Sending..." : "Start Conversation"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Sheet open={isMessageSheetOpen} onOpenChange={setIsMessageSheetOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
+          <div className="border-b p-4">
+            <SheetHeader>
+              <SheetTitle>Conversation</SheetTitle>
+              <SheetDescription>
+                Thread for {sheetPhoneNumber || "this contact"}
+              </SheetDescription>
+            </SheetHeader>
+          </div>
+          
+          {/* Message area */}
+          <div ref={messageAreaRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+            {conversationMessages.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                <p className="text-sm mb-2">No messages yet</p>
+                <p className="text-xs">Start the conversation by sending a message below</p>
+              </div>
+            ) : (
+              <>
+                <div className="text-xs text-muted-foreground text-center mb-4">
+                  Inbound (customer) on the left • Outbound (you) on the right
+                </div>
+                {conversationMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.isInbound ? "justify-start" : "justify-end"}`}
+                  >
+                    <div
+                      className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                        msg.isInbound
+                          ? "bg-muted"
+                          : "bg-primary text-primary-foreground"
+                      }`}
+                    >
+                      <p className="text-sm">{msg.text}</p>
+                      <p className={`text-xs mt-1 ${
+                        msg.isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
+                      }`}>
+                        {msg.timestamp}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+          
+          {/* Input area */}
+          <div className="border-t p-4">
+            <div className="flex gap-2">
+              <Textarea
+                placeholder="Type your message here..."
+                value={sheetMessage}
+                onChange={(e) => setSheetMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSendSheetMessage()
+                  }
+                }}
+                rows={3}
+                className="resize-none flex-1"
+              />
+              <Button
+                onClick={handleSendSheetMessage}
+                disabled={!sheetMessage.trim()}
+                className="self-end"
+              >
+                Send
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import {
   ClerkProvider,
-  SignInButton,
-  SignUpButton,
+  SignIn,
   SignedIn,
   SignedOut,
   UserButton,
@@ -45,10 +44,9 @@ export default function RootLayout({
           <Providers>
             <Toaster />
             <SignedOut>
-              <header>
-                <SignInButton />
-                <SignUpButton />
-              </header>
+              <div className="flex min-h-screen items-center justify-center">
+                <SignIn />
+              </div>
               {children}
             </SignedOut>
             <SignedIn>
