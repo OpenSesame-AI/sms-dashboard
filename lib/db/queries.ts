@@ -61,7 +61,7 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
             SELECT s2.status
             FROM sms_conversations s2
             WHERE s2.phone_number = p.phone_number
-              AND (s2.cell_id = ${cellId} OR s2.cell_id IS NULL)
+              AND s2.cell_id = ${cellId}
             ORDER BY s2.timestamp DESC
             LIMIT 1
           ) as "lastStatus",
@@ -69,13 +69,13 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
             SELECT s3.direction
             FROM sms_conversations s3
             WHERE s3.phone_number = p.phone_number
-              AND (s3.cell_id = ${cellId} OR s3.cell_id IS NULL)
+              AND s3.cell_id = ${cellId}
             ORDER BY s3.timestamp DESC
             LIMIT 1
           ) as "lastMessageDirection"
         FROM phone_user_mappings p
         LEFT JOIN sms_conversations s ON s.phone_number = p.phone_number
-          AND (s.cell_id = ${cellId} OR s.cell_id IS NULL)
+          AND s.cell_id = ${cellId}
         WHERE p.cell_id = ${cellId}
         GROUP BY p.id, p.phone_number, p.user_id, p.created_at
         ORDER BY MAX(s.timestamp) DESC NULLS LAST
@@ -219,10 +219,7 @@ export async function getConversationsByPhoneNumber(
       cellId
         ? and(
             eq(smsConversations.phoneNumber, phoneNumber),
-            or(
-              eq(smsConversations.cellId, cellId),
-              isNull(smsConversations.cellId)
-            )
+            eq(smsConversations.cellId, cellId)
           )
         : eq(smsConversations.phoneNumber, phoneNumber)
     )

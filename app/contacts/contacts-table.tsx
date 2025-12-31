@@ -1329,7 +1329,7 @@ export function ContactsTable<TData, TValue>({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message, to: [phoneNumber] }),
+        body: JSON.stringify({ message, to: [phoneNumber], from_number: selectedCell?.phoneNumber }),
       })
 
       const data = await res.json()
@@ -1457,7 +1457,7 @@ export function ContactsTable<TData, TValue>({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: body, to: selectedPhones }),
+        body: JSON.stringify({ message: body, to: selectedPhones, from_number: selectedCell?.phoneNumber }),
       })
 
       const data = await res.json()

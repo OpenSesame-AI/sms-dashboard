@@ -6,7 +6,7 @@ import {
   deleteCell,
   getCellById,
 } from '@/lib/db/queries'
-import { searchAndPurchaseNumber } from '@/lib/twilio'
+import { searchAndPurchaseNumber, configurePhoneNumberWebhooks } from '@/lib/twilio'
 
 export async function GET() {
   try {
@@ -55,6 +55,30 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Failed to purchase phone number: No phone number returned' },
         { status: 500 }
+      )
+    }
+
+    // Configure webhook URLs for the purchased phone number
+    const smsWebhookUrl = process.env.TWILIO_SMS_WEBHOOK_URL
+    const statusCallbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL
+
+    if (smsWebhookUrl && purchasedNumber.sid) {
+      try {
+        await configurePhoneNumberWebhooks(
+          purchasedNumber.sid,
+          smsWebhookUrl,
+          statusCallbackUrl
+        )
+      } catch (error) {
+        // Log the error but don't fail cell creation
+        console.warn(
+          `Failed to configure webhook URLs for phone number ${purchasedNumber.phoneNumber}:`,
+          error instanceof Error ? error.message : 'Unknown error'
+        )
+      }
+    } else if (!smsWebhookUrl) {
+      console.warn(
+        `TWILIO_SMS_WEBHOOK_URL not set. Webhook URLs not configured for phone number ${purchasedNumber.phoneNumber}`
       )
     }
 

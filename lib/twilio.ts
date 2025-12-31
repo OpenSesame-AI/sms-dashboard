@@ -116,6 +116,103 @@ export async function searchAndPurchaseNumber(
   return purchasedNumber
 }
 
+/**
+ * Get a phone number by its phone number string
+ * @param phoneNumber - Phone number in E.164 format (e.g., '+14155552671')
+ * @returns Phone number details or null if not found
+ */
+export async function getPhoneNumberByNumber(phoneNumber: string) {
+  const client = getTwilioClient()
+
+  try {
+    const incomingPhoneNumbers = await client.incomingPhoneNumbers.list({
+      phoneNumber,
+      limit: 1,
+    })
+
+    if (incomingPhoneNumbers.length === 0) {
+      return null
+    }
+
+    return incomingPhoneNumbers[0]
+  } catch (error) {
+    console.error('Error fetching phone number:', error)
+    throw new Error(
+      `Failed to fetch phone number: ${error instanceof Error ? error.message : 'Unknown error'}`
+    )
+  }
+}
+
+/**
+ * Configure webhook URLs for a Twilio phone number
+ * @param phoneNumberSid - The SID of the purchased phone number
+ * @param smsWebhookUrl - URL for incoming SMS messages
+ * @param statusCallbackUrl - Optional URL for message status updates
+ * @returns Updated phone number details
+ */
+export async function configurePhoneNumberWebhooks(
+  phoneNumberSid: string,
+  smsWebhookUrl: string,
+  statusCallbackUrl?: string
+) {
+  const client = getTwilioClient()
+
+  try {
+    const updateParams: {
+      smsUrl: string
+      smsMethod: string
+      statusCallback?: string
+      statusCallbackMethod?: string
+    } = {
+      smsUrl: smsWebhookUrl,
+      smsMethod: 'POST',
+    }
+
+    if (statusCallbackUrl) {
+      updateParams.statusCallback = statusCallbackUrl
+      updateParams.statusCallbackMethod = 'POST'
+    }
+
+    const updatedNumber = await client.incomingPhoneNumbers(phoneNumberSid).update(updateParams)
+
+    return updatedNumber
+  } catch (error) {
+    console.error('Error configuring webhook URLs:', error)
+    throw new Error(
+      `Failed to configure webhook URLs: ${error instanceof Error ? error.message : 'Unknown error'}`
+    )
+  }
+}
+
+/**
+ * Configure webhook URLs for a Twilio phone number by phone number string
+ * @param phoneNumber - Phone number in E.164 format (e.g., '+14155552671')
+ * @param smsWebhookUrl - URL for incoming SMS messages
+ * @param statusCallbackUrl - Optional URL for message status updates
+ * @returns Updated phone number details
+ */
+export async function configureWebhooksByPhoneNumber(
+  phoneNumber: string,
+  smsWebhookUrl: string,
+  statusCallbackUrl?: string
+) {
+  const phoneNumberResource = await getPhoneNumberByNumber(phoneNumber)
+
+  if (!phoneNumberResource) {
+    throw new Error(`Phone number ${phoneNumber} not found in Twilio account`)
+  }
+
+  if (!phoneNumberResource.sid) {
+    throw new Error(`Phone number ${phoneNumber} does not have a SID`)
+  }
+
+  return await configurePhoneNumberWebhooks(
+    phoneNumberResource.sid,
+    smsWebhookUrl,
+    statusCallbackUrl
+  )
+}
+
 
 
 

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { FileText, Upload, Trash2, RotateCcw } from "lucide-react"
+import { FileText, Upload, Trash2, RotateCcw, Link } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -37,9 +38,10 @@ export function CellContextDialog({
   onOpenChange,
   onSystemPromptSaved,
 }: CellContextDialogProps) {
-  const [activeTab, setActiveTab] = React.useState<"text" | "files">("text")
+  const [activeTab, setActiveTab] = React.useState<"text" | "files" | "url">("text")
   const [dragActive, setDragActive] = React.useState(false)
   const [editedPrompt, setEditedPrompt] = React.useState(systemPrompt || "")
+  const [urlInput, setUrlInput] = React.useState("")
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -64,6 +66,7 @@ export function CellContextDialog({
   })
 
   const fileItems = contextItems.filter((item) => item.type === "file")
+  const urlItems = contextItems.filter((item) => item.type === "url")
 
   // Add file context mutation
   const addFileMutation = useMutation({
@@ -154,6 +157,35 @@ export function CellContextDialog({
     },
   })
 
+  // Add URL context mutation
+  const addUrlMutation = useMutation({
+    mutationFn: async (url: string) => {
+      const response = await fetch(
+        `https://web-production-15949.up.railway.app/api/v1/cells/${cellId}/context/url`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        }
+      )
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.error || error.message || "Failed to add URL")
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cell-context", cellId] })
+      setUrlInput("")
+      toast.success("URL added successfully")
+    },
+    onError: (error) => {
+      toast.error("Failed to add URL", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    },
+  })
+
   const handleFileSelect = (files: FileList | null) => {
     if (!files || files.length === 0) return
 
@@ -222,7 +254,7 @@ export function CellContextDialog({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Text
+            System Prompt
           </button>
           <button
             onClick={() => setActiveTab("files")}
@@ -233,6 +265,16 @@ export function CellContextDialog({
             }`}
           >
             Files ({fileItems.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("url")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "url"
+                ? "border-b-2 border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            URLs ({urlItems.length})
           </button>
         </div>
 
@@ -332,6 +374,78 @@ export function CellContextDialog({
                             </div>
                             <div className="text-xs text-muted-foreground">
                               {item.mimeType} • {formatFileSize(item.fileSize)}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="ml-2 shrink-0"
+                          onClick={() => deleteMutation.mutate(item.id)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "url" && (
+            <div className="space-y-4 py-4">
+              {/* URL input area */}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="url-input">Add URL</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="url-input"
+                      type="url"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://example.com/page"
+                      className="flex-1"
+                    />
+                    <Button
+                      onClick={() => {
+                        if (urlInput.trim()) {
+                          addUrlMutation.mutate(urlInput.trim())
+                        }
+                      }}
+                      disabled={addUrlMutation.isPending || !urlInput.trim()}
+                    >
+                      {addUrlMutation.isPending ? "Adding..." : "Add URL"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enter a URL to fetch and use as context for this cell.
+                  </p>
+                </div>
+              </div>
+
+              {/* URL items list */}
+              {urlItems.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Added URLs</Label>
+                  <div className="space-y-2">
+                    {urlItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-3 border rounded-md"
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="shrink-0">
+                            <Link className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm truncate">
+                              {item.name}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {item.content?.substring(0, 100)}...
                             </div>
                           </div>
                         </div>

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, to } = body
+    const { message, to, from_number } = body
 
     // Validate request body
     if (!message || typeof message !== 'string' || !message.trim()) {
@@ -16,6 +16,13 @@ export async function POST(request: NextRequest) {
     if (!to || !Array.isArray(to) || to.length === 0) {
       return NextResponse.json(
         { error: 'Recipients (to) must be a non-empty array' },
+        { status: 400 }
+      )
+    }
+
+    if (!from_number || typeof from_number !== 'string' || !from_number.trim()) {
+      return NextResponse.json(
+        { error: 'from_number is required and must be a non-empty string' },
         { status: 400 }
       )
     }
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
         'X-Admin-Token': adminToken,
       },
-      body: JSON.stringify({ message: message.trim(), to }),
+      body: JSON.stringify({ message: message.trim(), to, from_number: from_number.trim() }),
     })
 
     const responseData = await response.json().catch(() => ({}))
