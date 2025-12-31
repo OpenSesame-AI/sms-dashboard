@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query"
 
 export function ContextButton() {
   const [open, setOpen] = React.useState(false)
-  const { selectedCell } = useCell()
+  const { selectedCell, setSelectedCell } = useCell()
 
   // Fetch context count for selected cell
   const { data: contextItems = [] } = useQuery({
@@ -51,8 +51,15 @@ export function ContextButton() {
       <CellContextDialog
         cellId={selectedCell.id}
         cellName={selectedCell.name}
+        systemPrompt={selectedCell.systemPrompt}
         open={open}
         onOpenChange={setOpen}
+        onSystemPromptSaved={(newPrompt) => {
+          setSelectedCell({
+            ...selectedCell,
+            systemPrompt: newPrompt,
+          })
+        }}
       />
     </>
   )

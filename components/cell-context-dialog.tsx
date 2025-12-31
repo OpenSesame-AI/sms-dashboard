@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { FileText, Upload, X, Trash2 } from "lucide-react"
+import { FileText, Upload, Trash2, RotateCcw } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -11,18 +11,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { CellContext } from "@/lib/db/schema"
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/constants"
 
 type CellContextDialogProps = {
   cellId: string
   cellName: string
+  systemPrompt: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSystemPromptSaved?: (newPrompt: string) => void
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
@@ -30,15 +32,23 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 export function CellContextDialog({
   cellId,
   cellName,
+  systemPrompt,
   open,
   onOpenChange,
+  onSystemPromptSaved,
 }: CellContextDialogProps) {
   const [activeTab, setActiveTab] = React.useState<"text" | "files">("text")
-  const [textContent, setTextContent] = React.useState("")
-  const [textName, setTextName] = React.useState("")
   const [dragActive, setDragActive] = React.useState(false)
+  const [editedPrompt, setEditedPrompt] = React.useState(systemPrompt || "")
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
+
+  // Sync editedPrompt when systemPrompt changes or dialog opens
+  React.useEffect(() => {
+    if (open) {
+      setEditedPrompt(systemPrompt || "")
+    }
+  }, [open, systemPrompt])
 
   // Fetch context items
   const { data: contextItems = [], isLoading } = useQuery<CellContext[]>({
@@ -53,70 +63,25 @@ export function CellContextDialog({
     enabled: open && !!cellId,
   })
 
-  const textItems = contextItems.filter((item) => item.type === "text")
   const fileItems = contextItems.filter((item) => item.type === "file")
-
-  // Add text context mutation
-  const addTextMutation = useMutation({
-    mutationFn: async (data: { name: string; content: string }) => {
-      const response = await fetch(`/api/cells/${cellId}/context`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "text",
-          name: data.name,
-          content: data.content,
-        }),
-      })
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to add text context")
-      }
-      return response.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cell-context", cellId] })
-      setTextContent("")
-      setTextName("")
-      toast.success("Text context added")
-    },
-    onError: (error) => {
-      toast.error("Failed to add text context", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
-    },
-  })
 
   // Add file context mutation
   const addFileMutation = useMutation({
     mutationFn: async (file: File) => {
-      // Convert file to base64
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const result = reader.result as string
-          // Remove data URL prefix
-          const base64 = result.split(",")[1]
-          resolve(base64)
-        }
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
+      // Create FormData for file upload
+      const formData = new FormData()
+      formData.append("file", file)
 
-      const response = await fetch(`/api/cells/${cellId}/context`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "file",
-          name: file.name,
-          content: base64,
-          mimeType: file.type,
-          fileSize: file.size,
-        }),
-      })
+      const response = await fetch(
+        `https://web-production-15949.up.railway.app/api/v1/cells/${cellId}/context`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      )
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to upload file")
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.error || error.message || "Failed to upload file")
       }
       return response.json()
     },
@@ -129,6 +94,35 @@ export function CellContextDialog({
     },
     onError: (error) => {
       toast.error("Failed to upload file", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    },
+  })
+
+  // Update system prompt mutation
+  const updateSystemPromptMutation = useMutation({
+    mutationFn: async (newPrompt: string) => {
+      const response = await fetch(`/api/cells`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: cellId,
+          name: cellName,
+          systemPrompt: newPrompt,
+        }),
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to update system prompt")
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      toast.success("System prompt saved")
+      onSystemPromptSaved?.(data.systemPrompt)
+    },
+    onError: (error) => {
+      toast.error("Failed to save system prompt", {
         description: error instanceof Error ? error.message : "Unknown error",
       })
     },
@@ -159,25 +153,6 @@ export function CellContextDialog({
       })
     },
   })
-
-  const handleAddText = () => {
-    if (!textName.trim()) {
-      toast.error("Missing name", {
-        description: "Please provide a name for the text context",
-      })
-      return
-    }
-    if (!textContent.trim()) {
-      toast.error("Missing content", {
-        description: "Please provide text content",
-      })
-      return
-    }
-    addTextMutation.mutate({
-      name: textName.trim(),
-      content: textContent.trim(),
-    })
-  }
 
   const handleFileSelect = (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -247,7 +222,7 @@ export function CellContextDialog({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Text ({textItems.length})
+            Text
           </button>
           <button
             onClick={() => setActiveTab("files")}
@@ -266,65 +241,37 @@ export function CellContextDialog({
           {activeTab === "text" && (
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="text-name">Name</Label>
-                <Input
-                  id="text-name"
-                  value={textName}
-                  onChange={(e) => setTextName(e.target.value)}
-                  placeholder="e.g., Company Info, Instructions"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="text-content">Content</Label>
+                <Label htmlFor="system-prompt">System Prompt</Label>
                 <Textarea
-                  id="text-content"
-                  value={textContent}
-                  onChange={(e) => setTextContent(e.target.value)}
-                  placeholder="Enter text context..."
-                  rows={6}
+                  id="system-prompt"
+                  value={editedPrompt}
+                  onChange={(e) => setEditedPrompt(e.target.value)}
+                  placeholder="Enter the system prompt for this cell..."
+                  rows={12}
                 />
               </div>
-              <Button
-                onClick={handleAddText}
-                disabled={
-                  !textName.trim() ||
-                  !textContent.trim() ||
-                  addTextMutation.isPending
-                }
-              >
-                {addTextMutation.isPending ? "Adding..." : "Add Text Context"}
-              </Button>
-
-              {/* Text items list */}
-              {textItems.length > 0 && (
-                <div className="space-y-2 mt-6">
-                  <Label>Existing Text Context</Label>
-                  <div className="space-y-2">
-                    {textItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex items-start justify-between p-3 border rounded-md"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm">{item.name}</div>
-                          <div className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                            {item.content}
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="ml-2 shrink-0"
-                          onClick={() => deleteMutation.mutate(item.id)}
-                          disabled={deleteMutation.isPending}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setEditedPrompt(DEFAULT_SYSTEM_PROMPT)}
+                  disabled={
+                    updateSystemPromptMutation.isPending ||
+                    editedPrompt === DEFAULT_SYSTEM_PROMPT
+                  }
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Reset to Default
+                </Button>
+                <Button
+                  onClick={() => updateSystemPromptMutation.mutate(editedPrompt)}
+                  disabled={
+                    updateSystemPromptMutation.isPending ||
+                    editedPrompt === (systemPrompt || "")
+                  }
+                >
+                  {updateSystemPromptMutation.isPending ? "Saving..." : "Save System Prompt"}
+                </Button>
+              </div>
             </div>
           )}
 

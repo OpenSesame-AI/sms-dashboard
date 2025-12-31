@@ -75,7 +75,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json()
-    const { id, name, phoneNumber } = body
+    const { id, name, phoneNumber, systemPrompt } = body
 
     if (!id || !name) {
       return NextResponse.json(
@@ -84,7 +84,7 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const cell = await updateCell(id, name, phoneNumber)
+    const cell = await updateCell(id, name, phoneNumber, systemPrompt)
     if (!cell) {
       return NextResponse.json(
         { error: 'Cell not found' },

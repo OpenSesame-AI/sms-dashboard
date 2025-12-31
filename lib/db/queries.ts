@@ -606,26 +606,33 @@ export async function getCellById(id: string) {
 }
 
 
-export async function createCell(phoneNumber: string, name: string) {
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/constants"
+
+export async function createCell(phoneNumber: string, name: string, systemPrompt?: string) {
   const result = await db
     .insert(cells)
     .values({
       phoneNumber,
       name,
+      systemPrompt: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
     })
     .returning()
   
   return result[0]
 }
 
-export async function updateCell(id: string, name: string, phoneNumber?: string) {
-  const updateData: { name: string; phoneNumber?: string; updatedAt: Date } = {
+export async function updateCell(id: string, name: string, phoneNumber?: string, systemPrompt?: string) {
+  const updateData: { name: string; phoneNumber?: string; systemPrompt?: string; updatedAt: Date } = {
     name,
     updatedAt: new Date(),
   }
   
   if (phoneNumber) {
     updateData.phoneNumber = phoneNumber
+  }
+  
+  if (systemPrompt !== undefined) {
+    updateData.systemPrompt = systemPrompt
   }
   
   const result = await db
