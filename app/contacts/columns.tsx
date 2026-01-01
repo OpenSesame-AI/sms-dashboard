@@ -1,7 +1,7 @@
 "use client"
 
 import { ColumnDef } from "@tanstack/react-table"
-import { ArrowUpDown, Plus, MessageSquare, AlertTriangle } from "lucide-react"
+import { ArrowUpDown, Plus, MessageSquare, AlertTriangle, Type } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -52,7 +52,7 @@ export const columns: ColumnDef<Contact>[] = [
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity ml-auto mr-2"
             onClick={(e) => {
               e.stopPropagation()
               onOpenMessageSheet?.(phoneNumber)
@@ -72,6 +72,7 @@ export const columns: ColumnDef<Contact>[] = [
       const onStartConversation = (table.options.meta as any)?.onStartConversation
       return (
         <div className="flex items-center gap-2">
+          <Type className="h-3.5 w-3.5 text-muted-foreground" />
           <span>Phone Number</span>
           <Button 
             variant="ghost" 

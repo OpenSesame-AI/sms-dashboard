@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/table"
 import { DataTablePagination } from "@/components/data-table-pagination"
 import { Contact, ConversationMessage } from "@/lib/data"
-import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel, Bell, AlertTriangle, WandSparkles, Settings, Eye, EyeOff, Copy, ArrowLeft, ArrowRight, Pin, Info, Palette, Type } from "lucide-react"
+import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel, Bell, AlertTriangle, WandSparkles, Settings, Eye, EyeOff, Copy, ArrowLeft, ArrowRight, Pin, Info, Palette, Type, Calendar, Hash, Tag } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useCell } from "@/components/cell-context"
 import {
@@ -95,6 +95,103 @@ import {
 interface ContactsTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data?: TData[] // Made optional since we'll fetch client-side
+}
+
+type ColumnDataType = 'text' | 'datetime' | 'number' | 'status'
+
+const COLUMN_DATA_TYPES: Record<string, ColumnDataType> = {
+  phoneNumber: 'text',
+  userId: 'text',
+  lastMessage: 'text',
+  status: 'status',
+  numberOfMessages: 'number',
+  started: 'datetime',
+  lastActivity: 'datetime',
+}
+
+// Helper function to get filter conditions based on column data type
+const getFilterConditions = (columnId: string): Array<{ value: string; label: string }> => {
+  const dataType = COLUMN_DATA_TYPES[columnId] || 'text'
+  
+  switch (dataType) {
+    case 'text':
+      return [
+        { value: 'contains', label: 'Contains' },
+        { value: 'does not contain', label: 'Does not contain' },
+        { value: 'starts with', label: 'Starts with' },
+        { value: 'ends with', label: 'Ends with' },
+        { value: 'equals', label: 'Equals' },
+        { value: 'not equals', label: 'Not equals' },
+        { value: 'is empty', label: 'Is empty' },
+        { value: 'is not empty', label: 'Is not empty' },
+      ]
+    case 'datetime':
+      return [
+        { value: 'before', label: 'Before' },
+        { value: 'after', label: 'After' },
+        { value: 'on date', label: 'On date' },
+        { value: 'is empty', label: 'Is empty' },
+        { value: 'is not empty', label: 'Is not empty' },
+      ]
+    case 'number':
+      return [
+        { value: 'equals', label: 'Equals' },
+        { value: 'not equals', label: 'Not equals' },
+        { value: 'greater than', label: 'Greater than' },
+        { value: 'less than', label: 'Less than' },
+        { value: 'is empty', label: 'Is empty' },
+        { value: 'is not empty', label: 'Is not empty' },
+      ]
+    case 'status':
+      return [
+        { value: 'equals', label: 'Equals' },
+        { value: 'not equals', label: 'Not equals' },
+        { value: 'is empty', label: 'Is empty' },
+        { value: 'is not empty', label: 'Is not empty' },
+      ]
+    default:
+      return [
+        { value: 'contains', label: 'Contains' },
+        { value: 'does not contain', label: 'Does not contain' },
+        { value: 'equals', label: 'Equals' },
+        { value: 'not equals', label: 'Not equals' },
+        { value: 'is empty', label: 'Is empty' },
+        { value: 'is not empty', label: 'Is not empty' },
+      ]
+  }
+}
+
+// Helper function to get default filter condition for a column
+const getDefaultFilterCondition = (columnId: string): string => {
+  const dataType = COLUMN_DATA_TYPES[columnId] || 'text'
+  
+  switch (dataType) {
+    case 'datetime':
+      return 'after'
+    case 'number':
+      return 'equals'
+    case 'status':
+      return 'equals'
+    default:
+      return 'contains'
+  }
+}
+
+// Helper function to get icon component for a column data type
+const getColumnTypeIcon = (columnId: string) => {
+  const dataType = COLUMN_DATA_TYPES[columnId] || 'text'
+  
+  switch (dataType) {
+    case 'datetime':
+      return Calendar
+    case 'number':
+      return Hash
+    case 'status':
+      return Tag
+    case 'text':
+    default:
+      return Type
+  }
 }
 
 export function ContactsTable<TData, TValue>({
@@ -284,6 +381,7 @@ export function ContactsTable<TData, TValue>({
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
   const [columnColors, setColumnColors] = React.useState<Record<string, string>>({})
+  const [pinnedColumns, setPinnedColumns] = React.useState<Set<string>>(new Set())
   
   // Helper function to get contrasting text color (black or white) based on background
   const getContrastColor = (backgroundColor: string): string => {
@@ -349,6 +447,7 @@ export function ContactsTable<TData, TValue>({
     onSortAsc,
     onSortDesc,
     onFilter,
+    onPin,
   }: {
     children: React.ReactNode
     columnId: string
@@ -361,10 +460,14 @@ export function ContactsTable<TData, TValue>({
     onHide?: () => void
     onSortAsc?: () => void
     onSortDesc?: () => void
-    onFilter?: () => void
+    onFilter?: (condition?: string) => void
+    onPin?: () => void
   }) => {
     const isHidden = columnVisibility[columnId] === false
     const isPhoneNumber = columnId === 'phoneNumber'
+    const isSelectColumn = columnId === 'select'
+    const isPinned = pinnedColumns.has(columnId)
+    const canPin = !isSelectColumn && !isPhoneNumber // Can't pin select or phone number columns (they're always sticky)
     const currentColor = columnColors[columnId] || ""
     
     const handleColorChange = async (color: string) => {
@@ -422,15 +525,23 @@ export function ContactsTable<TData, TValue>({
       }
     }
     
+    // Get icon for this column type
+    const colKey = columnKey || columnId
+    const IconComponent = getColumnTypeIcon(colKey)
+    
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <div className="flex items-center gap-2 cursor-pointer rounded px-1 -mx-1 w-full">
+            <IconComponent className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             {children}
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuLabel>{columnName}</DropdownMenuLabel>
+          <DropdownMenuLabel className="flex items-center gap-2">
+            <IconComponent className="h-4 w-4 text-muted-foreground" />
+            {columnName}
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
           
           {onRename && (
@@ -495,33 +606,88 @@ export function ContactsTable<TData, TValue>({
           
           <DropdownMenuSeparator />
           
-          {onSortAsc && (
-            <DropdownMenuItem onClick={onSortAsc}>
-              <ArrowUp className="h-4 w-4 mr-2" />
-              Sort A → Z
+          {(onSortAsc || onSortDesc) && (() => {
+            // Determine column data type for appropriate sort labels
+            const colKey = columnKey || columnId
+            const dataType = COLUMN_DATA_TYPES[colKey] || 'text'
+            
+            let ascLabel = "Sort A → Z"
+            let descLabel = "Sort Z → A"
+            
+            switch (dataType) {
+              case 'datetime':
+                ascLabel = "Sort Oldest first"
+                descLabel = "Sort Newest first"
+                break
+              case 'number':
+                ascLabel = "Sort Lowest first"
+                descLabel = "Sort Highest first"
+                break
+              case 'text':
+              case 'status':
+              default:
+                ascLabel = "Sort A → Z"
+                descLabel = "Sort Z → A"
+                break
+            }
+            
+            return (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ArrowUpDown className="h-4 w-4 mr-2" />
+                  Sort
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {onSortAsc && (
+                    <DropdownMenuItem onClick={onSortAsc}>
+                      <ArrowUp className="h-4 w-4 mr-2" />
+                      {ascLabel}
+                    </DropdownMenuItem>
+                  )}
+                  {onSortDesc && (
+                    <DropdownMenuItem onClick={onSortDesc}>
+                      <ArrowDown className="h-4 w-4 mr-2" />
+                      {descLabel}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )
+          })()}
+          
+          {onFilter && (() => {
+            // Determine column data type for appropriate filter options
+            const colKey = columnKey || columnId
+            const availableConditions = getFilterConditions(colKey)
+            
+            return (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Funnel className="h-4 w-4 mr-2" />
+                  Filter
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {availableConditions.map((cond) => (
+                    <DropdownMenuItem 
+                      key={cond.value}
+                      onClick={() => onFilter(cond.value)}
+                    >
+                      {cond.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )
+          })()}
+          
+          {canPin && onPin && (
+            <DropdownMenuItem onClick={onPin}>
+              <Pin className={cn("h-4 w-4 mr-2", isPinned && "fill-current")} />
+              {isPinned ? "Unpin" : "Pin"}
             </DropdownMenuItem>
           )}
           
-          {onSortDesc && (
-            <DropdownMenuItem onClick={onSortDesc}>
-              <ArrowDown className="h-4 w-4 mr-2" />
-              Sort Z → A
-            </DropdownMenuItem>
-          )}
-          
-          {onFilter && (
-            <DropdownMenuItem onClick={onFilter}>
-              <Funnel className="h-4 w-4 mr-2" />
-              Filter on this column
-            </DropdownMenuItem>
-          )}
-          
-          <DropdownMenuItem disabled>
-            <Pin className="h-4 w-4 mr-2" />
-            Pin
-          </DropdownMenuItem>
-          
-          {onHide && (
+          {/* {onHide && (
             <DropdownMenuItem onClick={onHide}>
               {isHidden ? (
                 <>
@@ -535,7 +701,7 @@ export function ContactsTable<TData, TValue>({
                 </>
               )}
             </DropdownMenuItem>
-          )}
+          )} */}
           
           {onDelete && (
             <>
@@ -549,7 +715,7 @@ export function ContactsTable<TData, TValue>({
         </DropdownMenuContent>
       </DropdownMenu>
     )
-  }, [columnVisibility, columnColors, selectedCell?.id])
+  }, [columnVisibility, columnColors, pinnedColumns, selectedCell?.id])
 
   // Create columns with AI columns and Alert columns dynamically
   const columns = React.useMemo<ColumnDef<TData, TValue>[]>(() => {
@@ -586,14 +752,26 @@ export function ContactsTable<TData, TValue>({
           onSortDesc={() => {
             column.toggleSorting(true)
           }}
-          onFilter={() => {
+          onFilter={(condition) => {
             const newFilterId = Date.now().toString()
             setFilters((prev) => [...prev, {
               id: newFilterId,
               column: columnKey,
-              condition: "contains",
+              condition: condition || getDefaultFilterCondition(columnKey),
               value: "",
             }])
+            setFilterPopoverOpen(true)
+          }}
+          onPin={() => {
+            setPinnedColumns((prev) => {
+              const newSet = new Set(prev)
+              if (newSet.has(column.id)) {
+                newSet.delete(column.id)
+              } else {
+                newSet.add(column.id)
+              }
+              return newSet
+            })
           }}
         >
           <div className="flex items-center gap-2">
@@ -657,14 +835,26 @@ export function ContactsTable<TData, TValue>({
                 [column.id]: !prev[column.id],
               }))
             }}
-            onFilter={() => {
+            onFilter={(condition) => {
               const newFilterId = Date.now().toString()
               setFilters((prev) => [...prev, {
                 id: newFilterId,
                 column: `alert_${alertId}`,
-                condition: "contains",
+                condition: condition || "contains",
                 value: "",
               }])
+              setFilterPopoverOpen(true)
+            }}
+            onPin={() => {
+              setPinnedColumns((prev) => {
+                const newSet = new Set(prev)
+                if (newSet.has(column.id)) {
+                  newSet.delete(column.id)
+                } else {
+                  newSet.add(column.id)
+                }
+                return newSet
+              })
             }}
           >
             <div className="flex items-center gap-2">
@@ -737,14 +927,27 @@ export function ContactsTable<TData, TValue>({
               onSortDesc={() => {
                 column.toggleSorting(true)
               }}
-              onFilter={() => {
-                const newFilterId = Date.now().toString()
-                setFilters((prev) => [...prev, {
-                  id: newFilterId,
-                  column: String(accessorKey || ""),
-                  condition: "contains",
-                  value: "",
-                }])
+            onFilter={(condition) => {
+              const newFilterId = Date.now().toString()
+              const columnKey = String(accessorKey || "")
+              setFilters((prev) => [...prev, {
+                id: newFilterId,
+                column: columnKey,
+                condition: condition || getDefaultFilterCondition(columnKey),
+                value: "",
+              }])
+              setFilterPopoverOpen(true)
+            }}
+              onPin={() => {
+                setPinnedColumns((prev) => {
+                  const newSet = new Set(prev)
+                  if (newSet.has(column.id)) {
+                    newSet.delete(column.id)
+                  } else {
+                    newSet.add(column.id)
+                  }
+                  return newSet
+                })
               }}
             >
               {headerContent}
@@ -1061,8 +1264,10 @@ export function ContactsTable<TData, TValue>({
   // Custom filter function
   const applyFilter = React.useCallback(
     (contact: Contact, columnId: string, filterValue: string, condition: string): boolean => {
-      let cellValue = ""
+      const dataType = COLUMN_DATA_TYPES[columnId] || 'text'
+      let cellValue: string | number | null = ""
 
+      // Extract cell value based on column
       switch (columnId) {
         case "phoneNumber":
           cellValue = contact.phoneNumber
@@ -1077,7 +1282,7 @@ export function ContactsTable<TData, TValue>({
           cellValue = contact.status || ""
           break
         case "numberOfMessages":
-          cellValue = String(contact.numberOfMessages)
+          cellValue = contact.numberOfMessages
           break
         case "started":
           cellValue = contact.started || ""
@@ -1089,28 +1294,92 @@ export function ContactsTable<TData, TValue>({
           cellValue = String((contact as any)[columnId] || "")
       }
 
-      const normalizedCellValue = cellValue.toLowerCase()
-      const normalizedFilterValue = filterValue.toLowerCase()
+      // Handle empty checks first (works for all types)
+      if (condition === "is empty") {
+        return cellValue === "" || cellValue === null || cellValue === undefined
+      }
+      if (condition === "is not empty") {
+        return cellValue !== "" && cellValue !== null && cellValue !== undefined
+      }
 
-      switch (condition) {
-        case "contains":
-          return normalizedCellValue.includes(normalizedFilterValue)
-        case "does not contain":
-          return !normalizedCellValue.includes(normalizedFilterValue)
-        case "starts with":
-          return normalizedCellValue.startsWith(normalizedFilterValue)
-        case "ends with":
-          return normalizedCellValue.endsWith(normalizedFilterValue)
-        case "equals":
-          return normalizedCellValue === normalizedFilterValue
-        case "not equals":
-          return normalizedCellValue !== normalizedFilterValue
-        case "is empty":
-          return cellValue === "" || cellValue === null || cellValue === undefined
-        case "is not empty":
-          return cellValue !== "" && cellValue !== null && cellValue !== undefined
-        default:
-          return true
+      // Type-specific comparisons
+      switch (dataType) {
+        case 'datetime': {
+          // Parse dates for comparison
+          // Format is "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"
+          const cellDate = cellValue ? new Date(cellValue as string) : null
+          const filterDate = filterValue.trim() ? new Date(filterValue.trim()) : null
+          
+          if (!cellDate || isNaN(cellDate.getTime())) {
+            return false // Invalid date
+          }
+          
+          if (!filterDate || isNaN(filterDate.getTime())) {
+            return false // Invalid filter date
+          }
+          
+          // Normalize to date only (ignore time) for "on date" comparison
+          const cellDateOnly = new Date(cellDate.getFullYear(), cellDate.getMonth(), cellDate.getDate())
+          const filterDateOnly = new Date(filterDate.getFullYear(), filterDate.getMonth(), filterDate.getDate())
+          
+          switch (condition) {
+            case "before":
+              return cellDate < filterDate
+            case "after":
+              return cellDate > filterDate
+            case "on date":
+              return cellDateOnly.getTime() === filterDateOnly.getTime()
+            default:
+              return true
+          }
+        }
+        
+        case 'number': {
+          const cellNum = typeof cellValue === 'number' ? cellValue : parseFloat(String(cellValue))
+          const filterNum = parseFloat(filterValue.trim())
+          
+          if (isNaN(cellNum) || isNaN(filterNum)) {
+            return false
+          }
+          
+          switch (condition) {
+            case "equals":
+              return cellNum === filterNum
+            case "not equals":
+              return cellNum !== filterNum
+            case "greater than":
+              return cellNum > filterNum
+            case "less than":
+              return cellNum < filterNum
+            default:
+              return true
+          }
+        }
+        
+        case 'text':
+        case 'status':
+        default: {
+          // String-based comparisons
+          const normalizedCellValue = String(cellValue).toLowerCase()
+          const normalizedFilterValue = filterValue.toLowerCase()
+          
+          switch (condition) {
+            case "contains":
+              return normalizedCellValue.includes(normalizedFilterValue)
+            case "does not contain":
+              return !normalizedCellValue.includes(normalizedFilterValue)
+            case "starts with":
+              return normalizedCellValue.startsWith(normalizedFilterValue)
+            case "ends with":
+              return normalizedCellValue.endsWith(normalizedFilterValue)
+            case "equals":
+              return normalizedCellValue === normalizedFilterValue
+            case "not equals":
+              return normalizedCellValue !== normalizedFilterValue
+            default:
+              return true
+          }
+        }
       }
     },
     []
@@ -1149,10 +1418,11 @@ export function ContactsTable<TData, TValue>({
   }, [tableData, filters, phoneSearch, applyFilter])
 
   const addFilter = () => {
+    const defaultColumn = "phoneNumber"
     const newFilter: Filter = {
       id: Date.now().toString(),
-      column: "phoneNumber",
-      condition: "contains",
+      column: defaultColumn,
+      condition: getDefaultFilterCondition(defaultColumn),
       value: "",
     }
     setFilters([...filters, newFilter])
@@ -2138,7 +2408,7 @@ export function ContactsTable<TData, TValue>({
               <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button 
-                    variant={filters.length > 0 ? "default" : "outline"} 
+                    variant={filters.length > 0 ? "secondary" : "outline"} 
                     size="sm"
                     className={filters.length === 0 ? "border-dashed" : ""}
                   >
@@ -2154,43 +2424,49 @@ export function ContactsTable<TData, TValue>({
                         <p className="text-sm text-muted-foreground">No filters applied</p>
                       ) : (
                         <div className="space-y-2">
-                          {filters.map((filter) => (
-                            <div key={filter.id} className="flex items-center gap-2 p-2 rounded-md">
-                              <Select
-                                value={filter.column}
-                                onValueChange={(value) => updateFilter(filter.id, "column", value)}
-                              >
-                                <SelectTrigger className="w-[140px] h-8">
-                                  <SelectValue placeholder="Select column" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="phoneNumber">Phone Number</SelectItem>
-                                  <SelectItem value="userId">User ID</SelectItem>
-                                  <SelectItem value="lastMessage">Last Message</SelectItem>
-                                  <SelectItem value="status">Status</SelectItem>
-                                  <SelectItem value="numberOfMessages"># of Messages</SelectItem>
-                                  <SelectItem value="started">Started</SelectItem>
-                                  <SelectItem value="lastActivity">Last Activity</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <Select
-                                value={filter.condition}
-                                onValueChange={(value) => updateFilter(filter.id, "condition", value)}
-                              >
-                                <SelectTrigger className="w-[140px] h-8">
-                                  <SelectValue placeholder="Condition" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="contains">Contains</SelectItem>
-                                  <SelectItem value="does not contain">Does not contain</SelectItem>
-                                  <SelectItem value="starts with">Starts with</SelectItem>
-                                  <SelectItem value="ends with">Ends with</SelectItem>
-                                  <SelectItem value="equals">Equals</SelectItem>
-                                  <SelectItem value="not equals">Not equals</SelectItem>
-                                  <SelectItem value="is empty">Is empty</SelectItem>
-                                  <SelectItem value="is not empty">Is not empty</SelectItem>
-                                </SelectContent>
-                              </Select>
+                          {filters.map((filter) => {
+                            const availableConditions = getFilterConditions(filter.column)
+                            const currentConditionValid = availableConditions.some(c => c.value === filter.condition)
+                            
+                            return (
+                              <div key={filter.id} className="flex items-center gap-2 p-2 rounded-md">
+                                <Select
+                                  value={filter.column}
+                                  onValueChange={(value) => {
+                                    // Reset condition to default for new column type
+                                    const newCondition = getDefaultFilterCondition(value)
+                                    updateFilter(filter.id, "column", value)
+                                    updateFilter(filter.id, "condition", newCondition)
+                                  }}
+                                >
+                                  <SelectTrigger className="w-[140px] h-8">
+                                    <SelectValue placeholder="Select column" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="phoneNumber">Phone Number</SelectItem>
+                                    <SelectItem value="userId">User ID</SelectItem>
+                                    <SelectItem value="lastMessage">Last Message</SelectItem>
+                                    <SelectItem value="status">Status</SelectItem>
+                                    <SelectItem value="numberOfMessages"># of Messages</SelectItem>
+                                    <SelectItem value="started">Started</SelectItem>
+                                    <SelectItem value="lastActivity">Last Activity</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Select
+                                  value={currentConditionValid ? filter.condition : availableConditions[0]?.value || ""}
+                                  onValueChange={(value) => updateFilter(filter.id, "condition", value)}
+                                >
+                                  <SelectTrigger className="w-[140px] h-8">
+                                    <SelectValue placeholder="Condition" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableConditions.map((cond) => (
+                                      <SelectItem key={cond.value} value={cond.value}>
+                                        {cond.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               <Input
                                 placeholder="Value..."
                                 value={filter.value}
@@ -2209,7 +2485,8 @@ export function ContactsTable<TData, TValue>({
                                 <X className="h-4 w-4" />
                               </Button>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -2230,7 +2507,7 @@ export function ContactsTable<TData, TValue>({
               <Popover open={sortPopoverOpen} onOpenChange={setSortPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button 
-                    variant={sorts.length > 0 ? "default" : "outline"} 
+                    variant={sorts.length > 0 ? "secondary" : "outline"} 
                     size="sm"
                     className={sorts.length === 0 ? "border-dashed" : ""}
                   >
@@ -2246,47 +2523,70 @@ export function ContactsTable<TData, TValue>({
                         <p className="text-sm text-muted-foreground">No sorts applied</p>
                       ) : (
                         <div className="space-y-2">
-                          {sorts.map((sort) => (
-                            <div key={sort.column} className="flex items-center gap-2 p-2 rounded-md">
-                              <Select
-                                value={sort.column}
-                                onValueChange={(value) => updateSort(sort.column, "column", value)}
-                              >
-                                <SelectTrigger className="w-[140px] h-8">
-                                  <SelectValue placeholder="Select column" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="phoneNumber">Phone Number</SelectItem>
-                                  <SelectItem value="userId">User ID</SelectItem>
-                                  <SelectItem value="lastMessage">Last Message</SelectItem>
-                                  <SelectItem value="status">Status</SelectItem>
-                                  <SelectItem value="numberOfMessages"># of Messages</SelectItem>
-                                  <SelectItem value="started">Started</SelectItem>
-                                  <SelectItem value="lastActivity">Last Activity</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <Select
-                                value={sort.direction}
-                                onValueChange={(value) => updateSort(sort.column, "direction", value as "asc" | "desc")}
-                              >
-                                <SelectTrigger className="w-[120px] h-8">
-                                  <SelectValue placeholder="Direction" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="asc">
-                                    <div className="flex items-center gap-2">
-                                      <ArrowUp className="h-3 w-3" />
-                                      Ascending
-                                    </div>
-                                  </SelectItem>
-                                  <SelectItem value="desc">
-                                    <div className="flex items-center gap-2">
-                                      <ArrowDown className="h-3 w-3" />
-                                      Descending
-                                    </div>
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
+                          {sorts.map((sort) => {
+                            // Get type-specific sort labels
+                            const dataType = COLUMN_DATA_TYPES[sort.column] || 'text'
+                            let ascLabel = "Ascending"
+                            let descLabel = "Descending"
+                            
+                            switch (dataType) {
+                              case 'datetime':
+                                ascLabel = "Oldest first"
+                                descLabel = "Newest first"
+                                break
+                              case 'number':
+                                ascLabel = "Lowest first"
+                                descLabel = "Highest first"
+                                break
+                              case 'text':
+                              case 'status':
+                              default:
+                                ascLabel = "A → Z"
+                                descLabel = "Z → A"
+                                break
+                            }
+                            
+                            return (
+                              <div key={sort.column} className="flex items-center gap-2 p-2 rounded-md">
+                                <Select
+                                  value={sort.column}
+                                  onValueChange={(value) => updateSort(sort.column, "column", value)}
+                                >
+                                  <SelectTrigger className="w-[140px] h-8">
+                                    <SelectValue placeholder="Select column" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="phoneNumber">Phone Number</SelectItem>
+                                    <SelectItem value="userId">User ID</SelectItem>
+                                    <SelectItem value="lastMessage">Last Message</SelectItem>
+                                    <SelectItem value="status">Status</SelectItem>
+                                    <SelectItem value="numberOfMessages"># of Messages</SelectItem>
+                                    <SelectItem value="started">Started</SelectItem>
+                                    <SelectItem value="lastActivity">Last Activity</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Select
+                                  value={sort.direction}
+                                  onValueChange={(value) => updateSort(sort.column, "direction", value as "asc" | "desc")}
+                                >
+                                  <SelectTrigger className="w-[120px] h-8">
+                                    <SelectValue placeholder="Direction" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="asc">
+                                      <div className="flex items-center gap-2">
+                                        <ArrowUp className="h-3 w-3" />
+                                        {ascLabel}
+                                      </div>
+                                    </SelectItem>
+                                    <SelectItem value="desc">
+                                      <div className="flex items-center gap-2">
+                                        <ArrowDown className="h-3 w-3" />
+                                        {descLabel}
+                                      </div>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -2296,7 +2596,8 @@ export function ContactsTable<TData, TValue>({
                                 <X className="h-4 w-4" />
                               </Button>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -2463,11 +2764,12 @@ export function ContactsTable<TData, TValue>({
                         const columnId = header.id || header.column.id || String(accessorKey || "")
                         const isPhoneNumber = accessorKey === "phoneNumber"
                         const isSelectColumn = columnId === "select"
+                        const isPinned = pinnedColumns.has(columnId)
                         const isSortable = !isPhoneNumber && !isSelectColumn && !header.isPlaceholder
-                        // Select column and Phone Number column are sticky
-                        const isSticky = isSelectColumn || isPhoneNumber
+                        // Select column, Phone Number column, and pinned columns are sticky
+                        const isSticky = isSelectColumn || isPhoneNumber || isPinned
                         // Calculate left offset for sticky columns
-                        let leftOffset: string | undefined = undefined
+                        // let leftOffset: string | undefined = undefined
                         // if (isSelectColumn) {
                         //   leftOffset = "0"
                         // } else if (isPhoneNumber) {
@@ -2475,6 +2777,25 @@ export function ContactsTable<TData, TValue>({
                         //   const selectColumn = table.getAllColumns().find(col => col.id === "select")
                         //   const selectWidth = selectColumn?.getSize() || 80
                         //   leftOffset = `${selectWidth}px`
+                        // } else if (isPinned) {
+                        //   // Calculate offset for pinned columns: select + phone + all pinned columns before this one
+                        //   const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                        //   const phoneColumn = table.getAllColumns().find(col => col.id === "phoneNumber" || ('accessorKey' in col.columnDef && col.columnDef.accessorKey === "phoneNumber"))
+                        //   const selectWidth = selectColumn?.getSize() || 80
+                        //   const phoneWidth = phoneColumn?.getSize() || 200
+                          
+                        //   // Get all visible columns in order
+                        //   const visibleColumns = table.getVisibleLeafColumns()
+                        //   // Find pinned columns that come before this one
+                        //   let offset = selectWidth + phoneWidth
+                        //   for (const col of visibleColumns) {
+                        //     const colId = col.id || String(('accessorKey' in col.columnDef ? col.columnDef.accessorKey : "") || "")
+                        //     if (colId === columnId) break
+                        //     if (pinnedColumns.has(colId) && colId !== "select" && colId !== "phoneNumber") {
+                        //       offset += col.getSize()
+                        //     }
+                        //   }
+                        //   leftOffset = `${offset}px`
                         // }
                         const headerColor = columnColors[header.id] || ""
                         const headerTextColor = headerColor ? getContrastColor(headerColor) : undefined
@@ -2490,7 +2811,7 @@ export function ContactsTable<TData, TValue>({
                             )}
                             style={{
                               ...(isSticky ? { 
-                                left: leftOffset,
+                                // left: leftOffset,
                                 ...(isScrolled && {
                                   boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
                                 }),
@@ -2713,32 +3034,43 @@ export function ContactsTable<TData, TValue>({
                     const columnId = cell.column.id || String(accessorKey || "")
                     const isPhoneNumber = accessorKey === "phoneNumber"
                     const isSelectColumn = columnId === "select"
-                    // Select column and Phone Number column are sticky
-                    const isSticky = isSelectColumn || isPhoneNumber
+                    const isPinned = pinnedColumns.has(columnId)
+                    // Select column, Phone Number column, and pinned columns are sticky
+                    const isSticky = isSelectColumn || isPhoneNumber || isPinned
                     // Calculate left offset for sticky columns
-                    let leftOffset: string | undefined = undefined
-                    if (isSelectColumn) {
-                      leftOffset = "0"
-                    } else if (isPhoneNumber) {
-                      // Phone number comes after select column, so offset by select column width
-                      const selectColumn = table.getAllColumns().find(col => col.id === "select")
-                      const selectWidth = selectColumn?.getSize() || 80
-                      leftOffset = `${selectWidth}px`
-                    }
+                    // let leftOffset: string | undefined = undefined
+                    // if (isSelectColumn) {
+                    //   leftOffset = "0"
+                    // } else if (isPhoneNumber) {
+                    //   // Phone number comes after select column, so offset by select column width
+                    //   const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                    //   const selectWidth = selectColumn?.getSize() || 80
+                    //   leftOffset = `${selectWidth}px`
+                    // } else if (isPinned) {
+                    //   // Pinned columns positioned right after phone number column
+                    //   const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                    //   const phoneColumn = table.getAllColumns().find(col => col.id === "phoneNumber" || ('accessorKey' in col.columnDef && col.columnDef.accessorKey === "phoneNumber"))
+                    //   const selectWidth = selectColumn?.getSize() || 80
+                    //   const phoneWidth = phoneColumn?.getSize() || 200
+                    //   leftOffset = `${selectWidth + phoneWidth}px`
+                    // }
                     const cellColor = columnColors[cell.column.id] || ""
                     const cellBackgroundColor = cellColor ? getColorWithOpacity(cellColor, 0.1) : undefined
+                    const isRowSelected = row.getIsSelected()
                     
                     return (
                       <TableCell 
                         key={cell.id}
                         className={cn(
                           isSticky ? "sticky z-10 border-r" : "border-r",
-                          isSticky && !cellBackgroundColor && "bg-background group-hover:bg-muted/50",
+                          isSticky && !cellBackgroundColor && (
+                            isRowSelected ? "bg-muted" : "bg-background group-hover:bg-muted/50"
+                          ),
                           "overflow-hidden"
                         )}
                         style={{
                           ...(isSticky ? { 
-                            left: leftOffset,
+                            // left: leftOffset,
                             ...(isScrolled && {
                               boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
                             }),
@@ -2790,19 +3122,27 @@ export function ContactsTable<TData, TValue>({
                     const columnId = header.column.id || String(accessorKey || "")
                     const isPhoneNumber = accessorKey === "phoneNumber"
                     const isSelectColumn = columnId === "select"
+                    const isPinned = pinnedColumns.has(columnId)
                     const isNumberOfMessages = accessorKey === "numberOfMessages"
-                    // Select column and Phone Number column are sticky
-                    const isSticky = isSelectColumn || isPhoneNumber
+                    // Select column, Phone Number column, and pinned columns are sticky
+                    const isSticky = isSelectColumn || isPhoneNumber || isPinned
                     // Calculate left offset for sticky columns
-                    let leftOffset: string | undefined = undefined
-                    if (isSelectColumn) {
-                      leftOffset = "0"
-                    } else if (isPhoneNumber) {
-                      // Phone number comes after select column, so offset by select column width
-                      const selectColumn = table.getAllColumns().find(col => col.id === "select")
-                      const selectWidth = selectColumn?.getSize() || 80
-                      leftOffset = `${selectWidth}px`
-                    }
+                    // let leftOffset: string | undefined = undefined
+                    // if (isSelectColumn) {
+                    //   leftOffset = "0"
+                    // } else if (isPhoneNumber) {
+                    //   // Phone number comes after select column, so offset by select column width
+                    //   const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                    //   const selectWidth = selectColumn?.getSize() || 80
+                    //   leftOffset = `${selectWidth}px`
+                    // } else if (isPinned) {
+                    //   // Pinned columns positioned right after phone number column
+                    //   const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                    //   const phoneColumn = table.getAllColumns().find(col => col.id === "phoneNumber" || ('accessorKey' in col.columnDef && col.columnDef.accessorKey === "phoneNumber"))
+                    //   const selectWidth = selectColumn?.getSize() || 80
+                    //   const phoneWidth = phoneColumn?.getSize() || 200
+                    //   leftOffset = `${selectWidth + phoneWidth}px`
+                    // }
                     const footerColor = columnColors[header.id] || ""
                     const footerBackgroundColor = footerColor ? getColorWithOpacity(footerColor, 0.1) : undefined
                     
@@ -2817,7 +3157,7 @@ export function ContactsTable<TData, TValue>({
                         )}
                         style={{
                           ...(isSticky ? { 
-                            left: leftOffset,
+                            // left: leftOffset,
                             ...(isScrolled && {
                               boxShadow: "4px 0 12px -2px rgba(0, 0, 0, 0.25), 2px 0 6px -1px rgba(0, 0, 0, 0.2)"
                             }),
