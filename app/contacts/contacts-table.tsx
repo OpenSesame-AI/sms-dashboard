@@ -698,8 +698,8 @@ export function ContactsTable<TData, TValue>({
       const columnId = col.id || String(accessorKey || "")
       const isPhoneNumber = accessorKey === "phoneNumber"
       
-      // Don't wrap phoneNumber column - it has special checkbox/button logic
-      if (isPhoneNumber) {
+      // Don't wrap phoneNumber or select column - they have special logic
+      if (isPhoneNumber || columnId === "select") {
         return col
       }
       
@@ -1425,7 +1425,9 @@ export function ContactsTable<TData, TValue>({
   const allSelected = selectedCount > 0 && selectedCount === totalRows
 
   const getBroadcastButtonText = () => {
-    if (allSelected) {
+    if (selectedCount === 0) {
+      return ""
+    } else if (allSelected) {
       return "Broadcast to all"
     } else if (selectedCount === 1) {
       const selectedContact = selectedRows[0].original as Contact
@@ -1973,7 +1975,7 @@ export function ContactsTable<TData, TValue>({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">
-                <Download className="mr-2 h-4 w-4" />
+                <Download className="h-4 w-4" />
                 Export
               </Button>
             </DropdownMenuTrigger>
@@ -1987,13 +1989,13 @@ export function ContactsTable<TData, TValue>({
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="outline" size="sm" onClick={() => handleStartConversation()}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="h-4 w-4" />
             Start conversation
           </Button>
           <Dialog open={isAddColumnDialogOpen} onOpenChange={setIsAddColumnDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
-                <WandSparkles className="mr-2 h-4 w-4" />
+                <WandSparkles className="h-4 w-4" />
                 Add analysis
               </Button>
             </DialogTrigger>
@@ -2040,7 +2042,7 @@ export function ContactsTable<TData, TValue>({
           <Dialog open={isAddAlertDialogOpen} onOpenChange={setIsAddAlertDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
-                <Bell className="mr-2 h-4 w-4" />
+                <Bell className="h-4 w-4" />
                 Add Alert
               </Button>
             </DialogTrigger>
@@ -2135,12 +2137,16 @@ export function ContactsTable<TData, TValue>({
             <div className="flex items-center gap-2">
               <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant={filters.length > 0 ? "default" : "outline"} size="sm">
-                    <Funnel className="h-4 w-4 mr-2" />
+                  <Button 
+                    variant={filters.length > 0 ? "default" : "outline"} 
+                    size="sm"
+                    className={filters.length === 0 ? "border-dashed" : ""}
+                  >
+                    <Funnel className="h-4 w-4" />
                     {filters.length > 0 ? `Filtered by ${filters.length} ${filters.length === 1 ? 'field' : 'fields'}` : 'Filter'}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-80" align="start">
+                <PopoverContent className="w-full" align="start">
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <h4 className="font-medium text-sm">Filters</h4>
@@ -2149,7 +2155,7 @@ export function ContactsTable<TData, TValue>({
                       ) : (
                         <div className="space-y-2">
                           {filters.map((filter) => (
-                            <div key={filter.id} className="flex items-center gap-2 p-2 border rounded-md">
+                            <div key={filter.id} className="flex items-center gap-2 p-2 rounded-md">
                               <Select
                                 value={filter.column}
                                 onValueChange={(value) => updateFilter(filter.id, "column", value)}
@@ -2215,7 +2221,7 @@ export function ContactsTable<TData, TValue>({
                       }}
                       className="w-full"
                     >
-                      <Plus className="h-4 w-4 mr-2" />
+                      <Plus className="h-4 w-4" />
                       Add filter
                     </Button>
                   </div>
@@ -2223,12 +2229,16 @@ export function ContactsTable<TData, TValue>({
               </Popover>
               <Popover open={sortPopoverOpen} onOpenChange={setSortPopoverOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant={sorts.length > 0 ? "default" : "outline"} size="sm">
-                    <ArrowUpDown className="h-4 w-4 mr-2" />
+                  <Button 
+                    variant={sorts.length > 0 ? "default" : "outline"} 
+                    size="sm"
+                    className={sorts.length === 0 ? "border-dashed" : ""}
+                  >
+                    <ArrowUpDown className="h-4 w-4" />
                     {sorts.length > 0 ? `Sorted by ${sorts[0].column}` : 'Sort'}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-80" align="start">
+                <PopoverContent className="w-full" align="start">
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <h4 className="font-medium text-sm">Sorts</h4>
@@ -2237,7 +2247,7 @@ export function ContactsTable<TData, TValue>({
                       ) : (
                         <div className="space-y-2">
                           {sorts.map((sort) => (
-                            <div key={sort.column} className="flex items-center gap-2 p-2 border rounded-md">
+                            <div key={sort.column} className="flex items-center gap-2 p-2 rounded-md">
                               <Select
                                 value={sort.column}
                                 onValueChange={(value) => updateSort(sort.column, "column", value)}
@@ -2298,29 +2308,31 @@ export function ContactsTable<TData, TValue>({
                       }}
                       className="w-full"
                     >
-                      <Plus className="h-4 w-4 mr-2" />
+                      <Plus className="h-4 w-4" />
                       Add sort
                     </Button>
                   </div>
                 </PopoverContent>
               </Popover>
             </div>
-            {selectedCount > 0 && (
-              <div className="flex items-center gap-2">
-                <Button onClick={handleBroadcast}>
-                  {getBroadcastButtonText()}
-                </Button>
-                {aiColumns.size > 0 && (
-                  <Button onClick={() => setIsRunAnalysisDialogOpen(true)}>
-                    Run Analysis
+            <div className="flex items-center gap-2 h-9">
+              {selectedCount > 0 ? (
+                <>
+                  <Button size="sm" onClick={handleBroadcast}>
+                    {getBroadcastButtonText()}
                   </Button>
-                )}
-                <Button variant="destructive" onClick={handleDelete}>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
-                </Button>
-              </div>
-            )}
+                  {aiColumns.size > 0 && (
+                    <Button size="sm" onClick={() => setIsRunAnalysisDialogOpen(true)}>
+                      Run Analysis
+                    </Button>
+                  )}
+                  <Button variant="destructive" size="sm" onClick={handleDelete}>
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </Button>
+                </>
+              ) : null}
+            </div>
       </div>
       <Dialog open={isBroadcastDialogOpen} onOpenChange={setIsBroadcastDialogOpen}>
         <DialogContent>
@@ -2415,7 +2427,7 @@ export function ContactsTable<TData, TValue>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div ref={tableContainerRef} className="overflow-x-auto rounded-md border">
+      <div ref={tableContainerRef} className="overflow-auto rounded-md border max-h-[calc(100vh-200px)] [&_[data-slot=table-container]]:overflow-visible">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -2430,6 +2442,7 @@ export function ContactsTable<TData, TValue>({
                   const columnId = header.id || header.column.id || String(accessorKey || "")
                   return (
                     accessorKey !== "phoneNumber" &&
+                    columnId !== "select" &&
                     !header.isPlaceholder
                   )
                 })
@@ -2449,11 +2462,20 @@ export function ContactsTable<TData, TValue>({
                         const accessorKey = 'accessorKey' in header.column.columnDef ? header.column.columnDef.accessorKey : undefined
                         const columnId = header.id || header.column.id || String(accessorKey || "")
                         const isPhoneNumber = accessorKey === "phoneNumber"
-                        const isSortable = !isPhoneNumber && !header.isPlaceholder
-                        // Phone Number column (with checkbox) is sticky
-                        const isSticky = isPhoneNumber
-                        // Phone Number is at the left edge
-                        const leftOffset = isSticky ? "0" : undefined
+                        const isSelectColumn = columnId === "select"
+                        const isSortable = !isPhoneNumber && !isSelectColumn && !header.isPlaceholder
+                        // Select column and Phone Number column are sticky
+                        const isSticky = isSelectColumn || isPhoneNumber
+                        // Calculate left offset for sticky columns
+                        let leftOffset: string | undefined = undefined
+                        // if (isSelectColumn) {
+                        //   leftOffset = "0"
+                        // } else if (isPhoneNumber) {
+                        //   // Phone number comes after select column, so offset by select column width
+                        //   const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                        //   const selectWidth = selectColumn?.getSize() || 80
+                        //   leftOffset = `${selectWidth}px`
+                        // }
                         const headerColor = columnColors[header.id] || ""
                         const headerTextColor = headerColor ? getContrastColor(headerColor) : undefined
                         
@@ -2684,16 +2706,25 @@ export function ContactsTable<TData, TValue>({
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
                   onClick={() => row.toggleSelected()}
-                  className="cursor-pointer"
+                  className="cursor-pointer group"
                 >
                   {row.getVisibleCells().map((cell, cellIndex) => {
                     const accessorKey = 'accessorKey' in cell.column.columnDef ? cell.column.columnDef.accessorKey : undefined
                     const columnId = cell.column.id || String(accessorKey || "")
                     const isPhoneNumber = accessorKey === "phoneNumber"
-                    // Phone Number column (with checkbox) is sticky
-                    const isSticky = isPhoneNumber
-                    // Phone Number is at the left edge
-                    const leftOffset = isSticky ? "0" : undefined
+                    const isSelectColumn = columnId === "select"
+                    // Select column and Phone Number column are sticky
+                    const isSticky = isSelectColumn || isPhoneNumber
+                    // Calculate left offset for sticky columns
+                    let leftOffset: string | undefined = undefined
+                    if (isSelectColumn) {
+                      leftOffset = "0"
+                    } else if (isPhoneNumber) {
+                      // Phone number comes after select column, so offset by select column width
+                      const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                      const selectWidth = selectColumn?.getSize() || 80
+                      leftOffset = `${selectWidth}px`
+                    }
                     const cellColor = columnColors[cell.column.id] || ""
                     const cellBackgroundColor = cellColor ? getColorWithOpacity(cellColor, 0.1) : undefined
                     
@@ -2702,7 +2733,7 @@ export function ContactsTable<TData, TValue>({
                         key={cell.id}
                         className={cn(
                           isSticky ? "sticky z-10 border-r" : "border-r",
-                          isSticky && !cellBackgroundColor && "bg-background",
+                          isSticky && !cellBackgroundColor && "bg-background group-hover:bg-muted/50",
                           "overflow-hidden"
                         )}
                         style={{
@@ -2743,7 +2774,7 @@ export function ContactsTable<TData, TValue>({
             )}
             </TableBody>
             <TableFooter>
-              <TableRow>
+              <TableRow className="sticky bottom-0 z-20 bg-background border-t-2">
                 {(() => {
                   // Calculate average number of messages once
                   const rows = table.getFilteredRowModel().rows
@@ -2756,10 +2787,22 @@ export function ContactsTable<TData, TValue>({
                   
                   return table.getHeaderGroups()[0]?.headers.map((header, index) => {
                     const accessorKey = 'accessorKey' in header.column.columnDef ? header.column.columnDef.accessorKey : undefined
+                    const columnId = header.column.id || String(accessorKey || "")
                     const isPhoneNumber = accessorKey === "phoneNumber"
+                    const isSelectColumn = columnId === "select"
                     const isNumberOfMessages = accessorKey === "numberOfMessages"
-                    const isSticky = isPhoneNumber
-                    const leftOffset = isSticky ? "0" : undefined
+                    // Select column and Phone Number column are sticky
+                    const isSticky = isSelectColumn || isPhoneNumber
+                    // Calculate left offset for sticky columns
+                    let leftOffset: string | undefined = undefined
+                    if (isSelectColumn) {
+                      leftOffset = "0"
+                    } else if (isPhoneNumber) {
+                      // Phone number comes after select column, so offset by select column width
+                      const selectColumn = table.getAllColumns().find(col => col.id === "select")
+                      const selectWidth = selectColumn?.getSize() || 80
+                      leftOffset = `${selectWidth}px`
+                    }
                     const footerColor = columnColors[header.id] || ""
                     const footerBackgroundColor = footerColor ? getColorWithOpacity(footerColor, 0.1) : undefined
                     
@@ -2767,8 +2810,8 @@ export function ContactsTable<TData, TValue>({
                       <TableCell
                         key={header.id}
                         className={cn(
-                          isSticky ? "sticky z-10 border-r" : "border-r",
-                          isSticky && !footerBackgroundColor && "bg-muted/50",
+                          isSticky ? "sticky z-30 border-r" : "border-r",
+                          isSticky && !footerBackgroundColor && "bg-background",
                           index === 0 ? "font-medium" : "",
                           "overflow-hidden"
                         )}
@@ -2788,7 +2831,7 @@ export function ContactsTable<TData, TValue>({
                         }}
                       >
                         <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                          {isPhoneNumber ? (
+                          {isSelectColumn ? (
                             <span>Total: {rows.length}</span>
                           ) : isNumberOfMessages ? (
                             <span>Avg: {averageMessages}</span>

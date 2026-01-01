@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { validatePhoneNumber, normalizePhoneNumber } from '@/lib/utils'
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,6 +28,50 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate phone numbers
+    if (!validatePhoneNumber(from_number)) {
+      return NextResponse.json(
+        { error: `Invalid from_number: ${from_number}` },
+        { status: 400 }
+      )
+    }
+
+    // Validate and normalize recipient phone numbers
+    const normalizedRecipients: string[] = []
+    for (const recipient of to) {
+      if (typeof recipient !== 'string' || !recipient.trim()) {
+        return NextResponse.json(
+          { error: 'All recipients must be non-empty strings' },
+          { status: 400 }
+        )
+      }
+      
+      if (!validatePhoneNumber(recipient)) {
+        return NextResponse.json(
+          { error: `Invalid recipient phone number: ${recipient}` },
+          { status: 400 }
+        )
+      }
+
+      const normalized = normalizePhoneNumber(recipient)
+      if (!normalized) {
+        return NextResponse.json(
+          { error: `Could not normalize phone number: ${recipient}` },
+          { status: 400 }
+        )
+      }
+      normalizedRecipients.push(normalized)
+    }
+
+    // Normalize from_number
+    const normalizedFromNumber = normalizePhoneNumber(from_number)
+    if (!normalizedFromNumber) {
+      return NextResponse.json(
+        { error: `Could not normalize from_number: ${from_number}` },
+        { status: 400 }
+      )
+    }
+
     // Get admin token from environment variable
     const adminToken = process.env.ADMIN_TOKEN
     if (!adminToken) {
@@ -51,7 +96,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
         'X-Admin-Token': adminToken,
       },
-      body: JSON.stringify({ message: message.trim(), to, from_number: from_number.trim() }),
+      body: JSON.stringify({ message: message.trim(), to: normalizedRecipients, from_number: normalizedFromNumber }),
     })
 
     const responseData = await response.json().catch(() => ({}))

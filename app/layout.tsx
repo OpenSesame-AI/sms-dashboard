@@ -1,17 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import {
-  ClerkProvider,
-  SignIn,
-  SignedIn,
-  SignedOut,
-  UserButton,
-} from "@clerk/nextjs";
-import { HeaderActions } from "@/components/header-actions";
-import { TableSelector } from "@/components/table-selector";
-import { AnalyticsButton } from "@/components/analytics-button";
-import { ContextButton } from "@/components/context-button";
+import { ClerkProvider } from "@clerk/nextjs";
 import { Providers } from "@/components/providers";
+import { PublicRouteWrapper } from "@/components/public-route-wrapper";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -41,30 +32,23 @@ export default function RootLayout({
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                (function() {
+                  const theme = localStorage.getItem('theme');
+                  if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                  }
+                })();
+              `,
+            }}
+          />
           <Providers>
             <Toaster />
-            <SignedOut>
-              <div className="flex min-h-screen items-center justify-center">
-                <SignIn />
-              </div>
+            <PublicRouteWrapper>
               {children}
-            </SignedOut>
-            <SignedIn>
-              <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-4">
-                <div className="flex items-center gap-2">
-                  <TableSelector />
-                  <AnalyticsButton />
-                  <ContextButton />
-                </div>
-                <div className="flex items-center gap-2">
-                  <HeaderActions />
-                  <UserButton />
-                </div>
-              </header>
-              <div className="flex flex-1 flex-col gap-4 p-4">
-                {children}
-              </div>
-            </SignedIn>
+            </PublicRouteWrapper>
           </Providers>
         </body>
       </html>

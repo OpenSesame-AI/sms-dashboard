@@ -7,13 +7,18 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Contact } from "@/lib/data"
+import { formatPhoneNumber, getCountryCode } from "@/lib/utils"
+import ReactCountryFlag from "react-country-flag"
 
 export const columns: ColumnDef<Contact>[] = [
   {
-    accessorKey: "phoneNumber",
+    id: "select",
     enableSorting: false,
-    header: ({ column, table }) => {
-      const onStartConversation = (table.options.meta as any)?.onStartConversation
+    enableResizing: false,
+    size: 80,
+    minSize: 80,
+    maxSize: 80,
+    header: ({ table }) => {
       return (
         <div className="flex items-center gap-2">
           <Checkbox
@@ -25,6 +30,48 @@ export const columns: ColumnDef<Contact>[] = [
             onClick={(e) => e.stopPropagation()}
             aria-label="Select all"
           />
+        </div>
+      )
+    },
+    cell: ({ row, table }) => {
+      const rowIndex = table.getRowModel().rows.findIndex(r => r.id === row.id)
+      const displayIndex = rowIndex + 1
+      const onOpenMessageSheet = (table.options.meta as any)?.onOpenMessageSheet
+      const phoneNumber = row.original.phoneNumber
+      return (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => {
+              row.toggleSelected(!!value)
+            }}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Select row"
+          />
+          <span className="text-sm text-muted-foreground">{displayIndex}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenMessageSheet?.(phoneNumber)
+            }}
+            aria-label={`Start conversation with ${phoneNumber}`}
+          >
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: "phoneNumber",
+    enableSorting: false,
+    header: ({ column, table }) => {
+      const onStartConversation = (table.options.meta as any)?.onStartConversation
+      return (
+        <div className="flex items-center gap-2">
           <span>Phone Number</span>
           <Button 
             variant="ghost" 
@@ -42,7 +89,6 @@ export const columns: ColumnDef<Contact>[] = [
       )
     },
     cell: ({ row, table }) => {
-      const onOpenMessageSheet = (table.options.meta as any)?.onOpenMessageSheet
       const unreadPhoneNumbers = (table.options.meta as any)?.unreadPhoneNumbers as Set<string> | undefined
       const alertTriggers = (table.options.meta as any)?.alertTriggers as Map<string, Array<any>> | undefined
       const onDismissAlerts = (table.options.meta as any)?.onDismissAlerts as ((phoneNumber: string) => void) | undefined
@@ -51,18 +97,23 @@ export const columns: ColumnDef<Contact>[] = [
       const contactAlerts = alertTriggers?.get(phoneNumber) || []
       const hasAlerts = contactAlerts.length > 0
       
+      const formattedPhoneNumber = formatPhoneNumber(phoneNumber)
+      const countryCode = getCountryCode(phoneNumber)
       return (
-        <div className="flex items-center gap-2 group">
-          <Checkbox
-            checked={row.getIsSelected()}
-            onCheckedChange={(value) => {
-              row.toggleSelected(!!value)
-            }}
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Select row"
-          />
+        <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="truncate">{phoneNumber}</span>
+            {countryCode && (
+              <ReactCountryFlag
+                countryCode={countryCode}
+                svg
+                style={{
+                  width: '1.2em',
+                  height: '1.2em',
+                }}
+                title={countryCode}
+              />
+            )}
+            <span className="truncate" title={phoneNumber}>{formattedPhoneNumber}</span>
             {isUnread && (
               <span
                 className="relative flex h-2 w-2"
@@ -91,18 +142,6 @@ export const columns: ColumnDef<Contact>[] = [
               </button>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation()
-              onOpenMessageSheet?.(phoneNumber)
-            }}
-            aria-label={`Start conversation with ${phoneNumber}`}
-          >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
         </div>
       )
     },
