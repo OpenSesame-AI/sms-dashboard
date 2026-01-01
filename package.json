@@ -16,7 +16,9 @@
     "check-all-cells": "tsx scripts/check-all-cells.ts",
     "update-default-cell": "tsx scripts/update-default-cell.ts",
     "migrate:cell-id": "tsx scripts/migrate-cell-id.ts",
-    "migrate:system-prompt": "tsx scripts/apply-system-prompt-column.ts"
+    "migrate:system-prompt": "tsx scripts/apply-system-prompt-column.ts",
+    "migrate:user-id-to-cells": "tsx scripts/apply-user-id-to-cells.ts",
+    "populate:cells-user-id": "tsx scripts/populate-cells-user-id.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",

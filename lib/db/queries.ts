@@ -588,15 +588,24 @@ export async function saveAiResults(
 }
 
 // Cell CRUD queries
-export async function getAllCells() {
-  return await db.select().from(cells).orderBy(asc(cells.createdAt))
+export async function getAllCells(userId: string) {
+  return await db
+    .select()
+    .from(cells)
+    .where(eq(cells.userId, userId))
+    .orderBy(asc(cells.createdAt))
 }
 
-export async function getCellById(id: string) {
+export async function getCellById(id: string, userId?: string) {
+  const conditions = [eq(cells.id, id)]
+  if (userId) {
+    conditions.push(eq(cells.userId, userId))
+  }
+  
   const result = await db
     .select()
     .from(cells)
-    .where(eq(cells.id, id))
+    .where(conditions.length > 1 ? and(...conditions) : conditions[0])
     .limit(1)
   
   return result[0] || null
@@ -605,12 +614,13 @@ export async function getCellById(id: string) {
 
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/constants"
 
-export async function createCell(phoneNumber: string, name: string, systemPrompt?: string) {
+export async function createCell(phoneNumber: string, name: string, userId: string, systemPrompt?: string) {
   const result = await db
     .insert(cells)
     .values({
       phoneNumber,
       name,
+      userId,
       systemPrompt: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
     })
     .returning()
@@ -618,7 +628,7 @@ export async function createCell(phoneNumber: string, name: string, systemPrompt
   return result[0]
 }
 
-export async function updateCell(id: string, name: string, phoneNumber?: string, systemPrompt?: string) {
+export async function updateCell(id: string, name: string, userId: string, phoneNumber?: string, systemPrompt?: string) {
   const updateData: { name: string; phoneNumber?: string; systemPrompt?: string; updatedAt: Date } = {
     name,
     updatedAt: new Date(),
@@ -635,16 +645,16 @@ export async function updateCell(id: string, name: string, phoneNumber?: string,
   const result = await db
     .update(cells)
     .set(updateData)
-    .where(eq(cells.id, id))
+    .where(and(eq(cells.id, id), eq(cells.userId, userId)))
     .returning()
   
   return result[0] || null
 }
 
-export async function deleteCell(id: string) {
+export async function deleteCell(id: string, userId: string) {
   await db
     .delete(cells)
-    .where(eq(cells.id, id))
+    .where(and(eq(cells.id, id), eq(cells.userId, userId)))
 }
 
 // Cell Context CRUD queries

@@ -45,6 +45,7 @@ export const cells = pgTable('cells', {
   id: uuid('id').primaryKey().defaultRandom(),
   phoneNumber: varchar('phone_number').notNull(),
   name: varchar('name').notNull(),
+  userId: varchar('user_id').notNull(),
   systemPrompt: text('system_prompt'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

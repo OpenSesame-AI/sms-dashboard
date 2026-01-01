@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import {
   getCellContext,
   addCellContext,
   deleteCellContext,
+  getCellById,
 } from '@/lib/db/queries'
 
 export async function GET(
@@ -10,12 +12,29 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { id } = await params
 
     if (!id) {
       return NextResponse.json(
         { error: 'Cell ID is required' },
         { status: 400 }
+      )
+    }
+
+    // Verify ownership
+    const cell = await getCellById(id, userId)
+    if (!cell) {
+      return NextResponse.json(
+        { error: 'Cell not found or access denied' },
+        { status: 404 }
       )
     }
 
@@ -35,6 +54,14 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { id } = await params
     const body = await request.json()
     const { type, name, content, mimeType, fileSize } = body
@@ -43,6 +70,15 @@ export async function POST(
       return NextResponse.json(
         { error: 'Cell ID is required' },
         { status: 400 }
+      )
+    }
+
+    // Verify ownership
+    const cell = await getCellById(id, userId)
+    if (!cell) {
+      return NextResponse.json(
+        { error: 'Cell not found or access denied' },
+        { status: 404 }
       )
     }
 
@@ -100,6 +136,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    const { id } = await params
     const { searchParams } = new URL(request.url)
     const contextId = searchParams.get('contextId')
 
@@ -107,6 +152,15 @@ export async function DELETE(
       return NextResponse.json(
         { error: 'Missing required parameter: contextId' },
         { status: 400 }
+      )
+    }
+
+    // Verify ownership
+    const cell = await getCellById(id, userId)
+    if (!cell) {
+      return NextResponse.json(
+        { error: 'Cell not found or access denied' },
+        { status: 404 }
       )
     }
 

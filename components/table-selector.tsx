@@ -62,6 +62,13 @@ export function TableSelector() {
     }
   }, [selectedCell, cells, setSelectedCell])
 
+  // Auto-open Add Cell dialog if user has no cells
+  React.useEffect(() => {
+    if (!isLoading && cells.length === 0 && !isAddCellDialogOpen) {
+      setIsAddCellDialogOpen(true)
+    }
+  }, [isLoading, cells.length, isAddCellDialogOpen])
+
   // Create cell mutation
   const createCellMutation = useMutation({
     mutationFn: async (data: { name: string; country: string }) => {
@@ -190,6 +197,10 @@ export function TableSelector() {
   }
 
   const handleDialogClose = (open: boolean) => {
+    // Prevent closing if user has no cells - they must create at least one
+    if (!open && cells.length === 0 && !isLoading) {
+      return
+    }
     setIsAddCellDialogOpen(open)
     if (!open) {
       setNewCellName("")

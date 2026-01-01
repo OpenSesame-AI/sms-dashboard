@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import {
   getAllCells,
   createCell,
@@ -10,7 +11,15 @@ import { searchAndPurchaseNumber, configurePhoneNumberWebhooks } from '@/lib/twi
 
 export async function GET() {
   try {
-    const cells = await getAllCells()
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    const cells = await getAllCells(userId)
     return NextResponse.json(cells)
   } catch (error) {
     console.error('Error fetching cells:', error)
@@ -23,6 +32,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json()
     const { name, country = 'US' } = body
 
@@ -83,7 +100,7 @@ export async function POST(request: Request) {
     }
 
     // Create the cell with the purchased phone number
-    const cell = await createCell(purchasedNumber.phoneNumber, name)
+    const cell = await createCell(purchasedNumber.phoneNumber, name, userId)
     return NextResponse.json(cell, { status: 201 })
   } catch (error) {
     console.error('Error creating cell:', error)
@@ -98,6 +115,14 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json()
     const { id, name, phoneNumber, systemPrompt } = body
 
@@ -108,10 +133,10 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const cell = await updateCell(id, name, phoneNumber, systemPrompt)
+    const cell = await updateCell(id, name, userId, phoneNumber, systemPrompt)
     if (!cell) {
       return NextResponse.json(
-        { error: 'Cell not found' },
+        { error: 'Cell not found or access denied' },
         { status: 404 }
       )
     }
@@ -128,6 +153,14 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
@@ -138,7 +171,7 @@ export async function DELETE(request: Request) {
       )
     }
 
-    await deleteCell(id)
+    await deleteCell(id, userId)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting cell:', error)
