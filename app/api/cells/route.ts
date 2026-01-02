@@ -133,6 +133,13 @@ export async function POST(request: Request) {
 
     // Configure webhook URLs for the phone number
     // This is required for the cell to function, so failures should abort cell creation
+    if (!phoneNumberSid) {
+      return NextResponse.json(
+        { error: 'Failed to get phone number SID' },
+        { status: 500 }
+      )
+    }
+    
     let updatedNumber
     try {
       updatedNumber = await configurePhoneNumberWebhooks(
@@ -166,6 +173,13 @@ export async function POST(request: Request) {
 
     // Create the cell with the phone number
     // orgId is null for personal mode, string for org mode
+    if (!phoneNumber) {
+      return NextResponse.json(
+        { error: 'Failed to get phone number' },
+        { status: 500 }
+      )
+    }
+    
     const cell = await createCell(phoneNumber, name, userId, undefined, orgId)
     
     // Return cell with webhook configuration status
