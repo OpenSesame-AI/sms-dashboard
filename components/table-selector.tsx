@@ -84,12 +84,51 @@ export function TableSelector() {
     }
   }, [cells, selectedCell, isLoading, setSelectedCell])
 
+  // Track if Clerk dialogs are open
+  const [isClerkDialogOpen, setIsClerkDialogOpen] = React.useState(false)
+
+  // Watch for Clerk dialogs opening/closing
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    const checkClerkDialogs = () => {
+      // Check for Clerk's dialog/modal elements - check for OrganizationSwitcher popover specifically
+      const clerkDialogs = document.querySelectorAll(
+        '[class*="cl-organizationSwitcherPopover"]:not([style*="display: none"]), ' +
+        '[class*="cl-"] [role="dialog"]:not([style*="display: none"]), ' +
+        '[class*="cl-"] [data-state="open"]:not([style*="display: none"])'
+      )
+      setIsClerkDialogOpen(clerkDialogs.length > 0)
+    }
+
+    // Check immediately
+    checkClerkDialogs()
+
+    // Watch for changes in the DOM
+    const observer = new MutationObserver(checkClerkDialogs)
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'data-state', 'style']
+    })
+
+    // Also check periodically as a fallback
+    const interval = setInterval(checkClerkDialogs, 200)
+
+    return () => {
+      observer.disconnect()
+      clearInterval(interval)
+    }
+  }, [])
+
   // Auto-open Onboarding dialog if user has no cells
   React.useEffect(() => {
-    if (!isLoading && cells.length === 0 && !isOnboardingOpen && !isAddCellDialogOpen) {
+    // Don't open onboarding if Clerk dialogs are open (e.g., OrganizationSwitcher, invite members)
+    if (!isLoading && cells.length === 0 && !isOnboardingOpen && !isAddCellDialogOpen && !isClerkDialogOpen) {
       setIsOnboardingOpen(true)
     }
-  }, [isLoading, cells.length, isOnboardingOpen, isAddCellDialogOpen])
+  }, [isLoading, cells.length, isOnboardingOpen, isAddCellDialogOpen, isClerkDialogOpen])
 
   // Create cell mutation
   const createCellMutation = useMutation({
