@@ -91,6 +91,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 
 interface ContactsTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
@@ -382,6 +389,137 @@ export function ContactsTable<TData, TValue>({
   const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
   const [columnColors, setColumnColors] = React.useState<Record<string, string>>({})
   const [pinnedColumns, setPinnedColumns] = React.useState<Set<string>>(new Set())
+  
+  // Cell selection state for Excel-like selection
+  interface CellSelection {
+    startRow: number;
+    startCol: number;
+    endRow: number;
+    endCol: number;
+  }
+  const [cellSelection, setCellSelection] = React.useState<CellSelection | null>(null)
+  const [isDragging, setIsDragging] = React.useState(false)
+  const dragStartRef = React.useRef<{ row: number; col: number } | null>(null)
+  const contextMenuSelectionRef = React.useRef<CellSelection | null>(null)
+  
+  // Helper function to determine if a cell is selected
+  const isCellSelected = React.useCallback((rowIndex: number, colIndex: number): boolean => {
+    if (!cellSelection) return false
+    const minRow = Math.min(cellSelection.startRow, cellSelection.endRow)
+    const maxRow = Math.max(cellSelection.startRow, cellSelection.endRow)
+    const minCol = Math.min(cellSelection.startCol, cellSelection.endCol)
+    const maxCol = Math.max(cellSelection.startCol, cellSelection.endCol)
+    return rowIndex >= minRow && rowIndex <= maxRow && 
+           colIndex >= minCol && colIndex <= maxCol
+  }, [cellSelection])
+  
+  // Helper function to determine border positions for selected cells
+  const getCellBorderClasses = React.useCallback((rowIndex: number, colIndex: number): string => {
+    if (!cellSelection) return ""
+    const minRow = Math.min(cellSelection.startRow, cellSelection.endRow)
+    const maxRow = Math.max(cellSelection.startRow, cellSelection.endRow)
+    const minCol = Math.min(cellSelection.startCol, cellSelection.endCol)
+    const maxCol = Math.max(cellSelection.startCol, cellSelection.endCol)
+    
+    const classes: string[] = []
+    if (rowIndex === minRow) classes.push("border-t-2 border-blue-500")
+    if (rowIndex === maxRow) classes.push("border-b-2 border-blue-500")
+    if (colIndex === minCol) classes.push("border-l-2 border-blue-500")
+    if (colIndex === maxCol) classes.push("border-r-2 border-blue-500")
+    
+    return classes.join(" ")
+  }, [cellSelection])
+  
+  // Mouse event handlers for cell selection
+  const handleMouseDown = React.useCallback((e: React.MouseEvent<HTMLTableSectionElement>) => {
+    // Ignore right-clicks (button 2) - they should only trigger context menu
+    if (e.button === 2) {
+      return
+    }
+    
+    const target = e.target as HTMLElement
+    const cell = target.closest('td[data-row][data-col]') as HTMLElement | null
+    if (!cell) {
+      setCellSelection(null)
+      dragStartRef.current = null
+      return
+    }
+    
+    const rowIndex = parseInt(cell.getAttribute('data-row') || '0', 10)
+    const colIndex = parseInt(cell.getAttribute('data-col') || '0', 10)
+    
+    dragStartRef.current = { row: rowIndex, col: colIndex }
+    setCellSelection({
+      startRow: rowIndex,
+      startCol: colIndex,
+      endRow: rowIndex,
+      endCol: colIndex,
+    })
+    setIsDragging(true)
+    e.preventDefault()
+  }, [])
+  
+  const handleMouseMove = React.useCallback((e: React.MouseEvent<HTMLTableSectionElement>) => {
+    if (!isDragging || !cellSelection) return
+    
+    const target = e.target as HTMLElement
+    const cell = target.closest('td[data-row][data-col]') as HTMLElement | null
+    if (!cell) return
+    
+    const rowIndex = parseInt(cell.getAttribute('data-row') || '0', 10)
+    const colIndex = parseInt(cell.getAttribute('data-col') || '0', 10)
+    
+    if (rowIndex !== cellSelection.endRow || colIndex !== cellSelection.endCol) {
+      setCellSelection({
+        ...cellSelection,
+        endRow: rowIndex,
+        endCol: colIndex,
+      })
+    }
+  }, [isDragging, cellSelection])
+  
+  const handleMouseUp = React.useCallback(() => {
+    setIsDragging(false)
+  }, [])
+  
+  // Escape key handler to clear selection
+  React.useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && cellSelection) {
+        setCellSelection(null)
+        setIsDragging(false)
+        dragStartRef.current = null
+      }
+    }
+    
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [cellSelection])
+  
+  // Click outside handler to clear selection
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      // Ignore right-clicks
+      if (e.button === 2) {
+        return
+      }
+      const target = e.target as HTMLElement
+      // Don't clear if clicking on context menu
+      if (target.closest('[role="menu"]') || target.closest('[data-radix-context-menu-content]')) {
+        return
+      }
+      if (!target.closest('tbody')) {
+        setCellSelection(null)
+        dragStartRef.current = null
+        contextMenuSelectionRef.current = null
+      }
+    }
+    
+    if (cellSelection) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [cellSelection])
   
   // Helper function to get contrasting text color (black or white) based on background
   const getContrastColor = (backgroundColor: string): string => {
@@ -1003,17 +1141,6 @@ export function ContactsTable<TData, TValue>({
   const [newAlertName, setNewAlertName] = React.useState("")
   const [newAlertType, setNewAlertType] = React.useState<'ai' | 'keyword'>('keyword')
   const [newAlertCondition, setNewAlertCondition] = React.useState("")
-  const [newAlertCellId, setNewAlertCellId] = React.useState<string | null>(null)
-  
-  // Fetch all cells for alert dialog
-  const { data: cells = [] } = useQuery({
-    queryKey: ['cells'],
-    queryFn: async () => {
-      const response = await fetch('/api/cells')
-      if (!response.ok) throw new Error('Failed to fetch cells')
-      return response.json()
-    },
-  })
   
   // Edit alert dialog state
   const [isEditAlertDialogOpen, setIsEditAlertDialogOpen] = React.useState(false)
@@ -2076,7 +2203,7 @@ export function ContactsTable<TData, TValue>({
   
   // Alert management handlers
   const handleAddAlert = async () => {
-    if (!newAlertName.trim() || !newAlertCondition.trim() || !newAlertCellId) return
+    if (!newAlertName.trim() || !newAlertCondition.trim() || !selectedCell?.id) return
 
     try {
       const response = await fetch('/api/alerts', {
@@ -2088,7 +2215,7 @@ export function ContactsTable<TData, TValue>({
           name: newAlertName,
           type: newAlertType,
           condition: newAlertCondition,
-          cellId: newAlertCellId,
+          cellId: selectedCell.id,
         }),
       })
 
@@ -2102,7 +2229,6 @@ export function ContactsTable<TData, TValue>({
       setNewAlertName("")
       setNewAlertCondition("")
       setNewAlertType('keyword')
-      setNewAlertCellId(null)
       setIsAddAlertDialogOpen(false)
       
       toast.success('Alert created', {
@@ -2362,21 +2488,6 @@ export function ContactsTable<TData, TValue>({
                     className="resize-none"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-cell">Cell</Label>
-                  <Select value={newAlertCellId || ""} onValueChange={setNewAlertCellId}>
-                    <SelectTrigger id="alert-cell">
-                      <SelectValue placeholder="Select a cell" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {cells.map((cell: { id: string; name: string }) => (
-                        <SelectItem key={cell.id} value={cell.id}>
-                          {cell.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
               <DialogFooter>
                 <Button
@@ -2386,14 +2497,13 @@ export function ContactsTable<TData, TValue>({
                     setNewAlertName("")
                     setNewAlertCondition("")
                     setNewAlertType("keyword")
-                    setNewAlertCellId(null)
                   }}
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleAddAlert}
-                  disabled={!newAlertName.trim() || !newAlertCondition.trim() || !newAlertCellId}
+                  disabled={!newAlertName.trim() || !newAlertCondition.trim() || !selectedCell?.id}
                 >
                   Add Alert
                 </Button>
@@ -3020,13 +3130,74 @@ export function ContactsTable<TData, TValue>({
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <TableBody>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <TableBody
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  onContextMenu={(e) => {
+                    // Only show context menu if there's a cell selection
+                    if (!cellSelection) {
+                      e.preventDefault()
+                      contextMenuSelectionRef.current = null
+                      return
+                    }
+                    // Check if right-click is within selected area
+                    const target = e.target as HTMLElement
+                    const cell = target.closest('td[data-row][data-col]') as HTMLElement | null
+                    if (cell) {
+                      const rowIndex = parseInt(cell.getAttribute('data-row') || '0', 10)
+                      const colIndex = parseInt(cell.getAttribute('data-col') || '0', 10)
+                      if (isCellSelected(rowIndex, colIndex)) {
+                        // Store the selection in a ref so it persists when menu opens
+                        contextMenuSelectionRef.current = { ...cellSelection }
+                        console.log('Context menu opened, stored selection:', contextMenuSelectionRef.current)
+                        // Allow context menu to show - don't prevent default or clear selection
+                        return
+                      }
+                    }
+                    // If not in selected area, prevent context menu but keep selection
+                    e.preventDefault()
+                    contextMenuSelectionRef.current = null
+                  }}
+                  style={{ userSelect: isDragging ? 'none' : 'auto' }}
+                >
             {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
+              table.getRowModel().rows.map((row, rowIndex) => (
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  onClick={() => row.toggleSelected()}
+                  onClick={(e) => {
+                    // Ignore right-clicks
+                    if (e.button === 2) {
+                      e.stopPropagation()
+                      return
+                    }
+                    // Prevent row toggle if we're dragging or if we have a multi-cell selection
+                    if (isDragging) {
+                      e.stopPropagation()
+                      return
+                    }
+                    // If we have a cell selection that spans multiple cells, don't toggle row
+                    if (cellSelection && 
+                        (cellSelection.startRow !== cellSelection.endRow || 
+                         cellSelection.startCol !== cellSelection.endCol)) {
+                      e.stopPropagation()
+                      return
+                    }
+                    // If we clicked on the same cell we started dragging from, clear selection and toggle row
+                    if (dragStartRef.current && 
+                        dragStartRef.current.row === rowIndex &&
+                        cellSelection &&
+                        cellSelection.startRow === cellSelection.endRow &&
+                        cellSelection.startCol === cellSelection.endCol) {
+                      setCellSelection(null)
+                      dragStartRef.current = null
+                    }
+                    row.toggleSelected()
+                  }}
                   className="cursor-pointer group"
                 >
                   {row.getVisibleCells().map((cell, cellIndex) => {
@@ -3057,15 +3228,21 @@ export function ContactsTable<TData, TValue>({
                     const cellColor = columnColors[cell.column.id] || ""
                     const cellBackgroundColor = cellColor ? getColorWithOpacity(cellColor, 0.1) : undefined
                     const isRowSelected = row.getIsSelected()
+                    const isCellInSelection = isCellSelected(rowIndex, cellIndex)
+                    const cellBorderClasses = isCellInSelection ? getCellBorderClasses(rowIndex, cellIndex) : ""
                     
                     return (
                       <TableCell 
                         key={cell.id}
+                        data-row={rowIndex}
+                        data-col={cellIndex}
                         className={cn(
                           isSticky ? "sticky z-10 border-r" : "border-r",
                           isSticky && !cellBackgroundColor && (
                             isRowSelected ? "bg-muted" : "bg-background group-hover:bg-muted/50"
                           ),
+                          isCellInSelection && "bg-blue-100 dark:bg-blue-900/30",
+                          cellBorderClasses,
                           "overflow-hidden"
                         )}
                         style={{
@@ -3104,9 +3281,117 @@ export function ContactsTable<TData, TValue>({
                 </TableCell>
               </TableRow>
             )}
-            </TableBody>
+                </TableBody>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  onSelect={async (e) => {
+                    e.preventDefault()
+                    
+                    // Use the ref value which was captured when context menu opened
+                    const selectionToCopy = contextMenuSelectionRef.current || cellSelection
+                    
+                    console.log('Copy selected, cellSelection:', cellSelection, 'ref:', contextMenuSelectionRef.current)
+                    
+                    // Copy selected cell values
+                    if (!selectionToCopy) {
+                      console.log('No cell selection')
+                      toast.error('No selection to copy')
+                      return
+                    }
+                    const minRow = Math.min(selectionToCopy.startRow, selectionToCopy.endRow)
+                    const maxRow = Math.max(selectionToCopy.startRow, selectionToCopy.endRow)
+                    const minCol = Math.min(selectionToCopy.startCol, selectionToCopy.endCol)
+                    const maxCol = Math.max(selectionToCopy.startCol, selectionToCopy.endCol)
+                    
+                    const selectedValues: string[] = []
+                    for (let rowIdx = minRow; rowIdx <= maxRow; rowIdx++) {
+                      const row = table.getRowModel().rows[rowIdx]
+                      if (!row) continue
+                      const rowValues: string[] = []
+                      const visibleCells = row.getVisibleCells()
+                      
+                      for (let colIdx = minCol; colIdx <= maxCol; colIdx++) {
+                        const cell = visibleCells[colIdx]
+                        if (!cell) {
+                          rowValues.push('')
+                          continue
+                        }
+                        
+                        let cellText = ''
+                        
+                        // First, try to get the raw value from the column accessor
+                        const accessorKey = 'accessorKey' in cell.column.columnDef ? cell.column.columnDef.accessorKey : undefined
+                        const columnId = cell.column.id
+                        
+                        if (accessorKey && row.original) {
+                          const original = row.original as any
+                          const rawValue = original[accessorKey]
+                          if (rawValue !== undefined && rawValue !== null) {
+                            cellText = String(rawValue)
+                          }
+                        } else if (columnId === 'select') {
+                          // Special handling for select column (checkbox + index)
+                          cellText = String(rowIdx + 1)
+                        } else {
+                          // Try to get value using getValue
+                          try {
+                            const value = row.getValue(columnId)
+                            if (value !== undefined && value !== null) {
+                              cellText = String(value)
+                            }
+                          } catch (e) {
+                            // If getValue fails, try DOM extraction as last resort
+                            const cellElement = document.querySelector(`td[data-row="${rowIdx}"][data-col="${colIdx}"]`) as HTMLElement | null
+                            if (cellElement) {
+                              cellText = cellElement.textContent || ''
+                              // Clean up whitespace
+                              cellText = cellText.trim().replace(/\s+/g, ' ')
+                            }
+                          }
+                        }
+                        
+                        rowValues.push(cellText)
+                      }
+                      selectedValues.push(rowValues.join('\t'))
+                    }
+                    
+                    const textToCopy = selectedValues.join('\n')
+                    
+                    console.log('Text to copy:', textToCopy, 'Length:', textToCopy.length)
+                    
+                    if (!textToCopy.trim()) {
+                      console.log('No content to copy')
+                      toast.error('No content to copy')
+                      return
+                    }
+                    
+                    try {
+                      console.log('Attempting to copy to clipboard...')
+                      await navigator.clipboard.writeText(textToCopy)
+                      console.log('Successfully copied to clipboard')
+                      toast.success(`Copied ${selectedValues.length} row(s) to clipboard`)
+                    } catch (err) {
+                      console.error('Copy error:', err)
+                      toast.error('Failed to copy to clipboard')
+                    }
+                  }}
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onSelect={() => {
+                    setCellSelection(null)
+                  }}
+                >
+                  Clear Selection
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
             <TableFooter>
-              <TableRow className="sticky bottom-0 z-20 bg-background border-t-2">
+              <TableRow className="sticky bottom-0 z-20 bg-muted border-t-2 group">
                 {(() => {
                   // Calculate average number of messages once
                   const rows = table.getFilteredRowModel().rows
@@ -3151,9 +3436,9 @@ export function ContactsTable<TData, TValue>({
                         key={header.id}
                         className={cn(
                           isSticky ? "sticky z-30 border-r" : "border-r",
-                          isSticky && !footerBackgroundColor && "bg-background",
+                          isSticky && !footerBackgroundColor && "bg-muted",
                           index === 0 ? "font-medium" : "",
-                          "overflow-hidden"
+                          "overflow-hidden group-hover:opacity-50 transition-opacity"
                         )}
                         style={{
                           ...(isSticky ? { 
