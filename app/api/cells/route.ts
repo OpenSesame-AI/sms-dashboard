@@ -50,6 +50,20 @@ export async function POST(request: Request) {
       )
     }
 
+    // Validate webhook URL is set before purchasing a number (fail fast)
+    const smsWebhookUrl = process.env.TWILIO_SMS_WEBHOOK_URL
+    const statusCallbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL
+
+    if (!smsWebhookUrl) {
+      return NextResponse.json(
+        { 
+          error: 'TWILIO_SMS_WEBHOOK_URL environment variable is not set',
+          details: 'Webhook URL is required for cell functionality'
+        },
+        { status: 500 }
+      )
+    }
+
     // Auto-purchase a phone number from Twilio
     let purchasedNumber
     try {
@@ -75,33 +89,45 @@ export async function POST(request: Request) {
       )
     }
 
-    // Configure webhook URLs for the purchased phone number
-    const smsWebhookUrl = process.env.TWILIO_SMS_WEBHOOK_URL
-    const statusCallbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL
+    if (!purchasedNumber.sid) {
+      return NextResponse.json(
+        { error: 'Failed to purchase phone number: No SID returned' },
+        { status: 500 }
+      )
+    }
 
-    if (smsWebhookUrl && purchasedNumber.sid) {
-      try {
-        await configurePhoneNumberWebhooks(
-          purchasedNumber.sid,
-          smsWebhookUrl,
-          statusCallbackUrl
-        )
-      } catch (error) {
-        // Log the error but don't fail cell creation
-        console.warn(
-          `Failed to configure webhook URLs for phone number ${purchasedNumber.phoneNumber}:`,
-          error instanceof Error ? error.message : 'Unknown error'
-        )
-      }
-    } else if (!smsWebhookUrl) {
-      console.warn(
-        `TWILIO_SMS_WEBHOOK_URL not set. Webhook URLs not configured for phone number ${purchasedNumber.phoneNumber}`
+    // Configure webhook URLs for the purchased phone number
+    // This is required for the cell to function, so failures should abort cell creation
+    let updatedNumber
+    try {
+      updatedNumber = await configurePhoneNumberWebhooks(
+        purchasedNumber.sid,
+        smsWebhookUrl,
+        statusCallbackUrl
+      )
+    } catch (error) {
+      console.error('Error configuring webhook URLs:', error)
+      return NextResponse.json(
+        { 
+          error: 'Failed to configure webhook URLs',
+          details: error instanceof Error ? error.message : 'Unknown error',
+          phoneNumber: purchasedNumber.phoneNumber
+        },
+        { status: 500 }
       )
     }
 
     // Create the cell with the purchased phone number
     const cell = await createCell(purchasedNumber.phoneNumber, name, userId)
-    return NextResponse.json(cell, { status: 201 })
+    
+    // Return cell with webhook configuration status
+    return NextResponse.json({
+      ...cell,
+      webhook: {
+        smsUrl: updatedNumber.smsUrl,
+        statusCallback: updatedNumber.statusCallback || null,
+      }
+    }, { status: 201 })
   } catch (error) {
     console.error('Error creating cell:', error)
     return NextResponse.json(
