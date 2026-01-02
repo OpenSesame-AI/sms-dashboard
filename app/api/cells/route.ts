@@ -6,12 +6,14 @@ import {
   updateCell,
   deleteCell,
   getCellById,
+  getAvailablePhoneNumber,
+  removeAvailablePhoneNumber,
 } from '@/lib/db/queries'
-import { searchAndPurchaseNumber, configurePhoneNumberWebhooks } from '@/lib/twilio'
+import { searchAndPurchaseNumber, configurePhoneNumberWebhooks, getPhoneNumberByNumber } from '@/lib/twilio'
 
 export async function GET() {
   try {
-    const { userId } = await auth()
+    const { userId, orgId } = await auth()
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -19,7 +21,8 @@ export async function GET() {
       )
     }
 
-    const cells = await getAllCells(userId)
+    // orgId is null for personal mode, string for org mode
+    const cells = await getAllCells(userId, orgId)
     return NextResponse.json(cells)
   } catch (error) {
     console.error('Error fetching cells:', error)
@@ -32,7 +35,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { userId } = await auth()
+    const { userId, orgId } = await auth()
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -64,61 +67,106 @@ export async function POST(request: Request) {
       )
     }
 
-    // Auto-purchase a phone number from Twilio
-    let purchasedNumber
-    try {
-      purchasedNumber = await searchAndPurchaseNumber(country, {
-        smsEnabled: true,
-        voiceEnabled: true,
-      })
-    } catch (error) {
-      console.error('Error purchasing phone number:', error)
-      return NextResponse.json(
-        { 
-          error: error instanceof Error ? error.message : 'Failed to purchase phone number',
-          details: 'Please ensure TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are set correctly'
-        },
-        { status: 500 }
-      )
+    // Check for available phone numbers first (from deleted cells)
+    let phoneNumber: string | undefined
+    let phoneNumberSid: string | undefined
+    let purchasedNumber: any = null
+
+    const availablePhoneNumber = await getAvailablePhoneNumber()
+    
+    if (availablePhoneNumber) {
+      // Get the phone number's SID from Twilio
+      try {
+        const twilioNumber = await getPhoneNumberByNumber(availablePhoneNumber)
+        if (!twilioNumber || !twilioNumber.sid) {
+          // If number doesn't exist in Twilio, remove from available and purchase new
+          await removeAvailablePhoneNumber(availablePhoneNumber)
+          throw new Error(`Phone number ${availablePhoneNumber} not found in Twilio account`)
+        }
+        phoneNumber = availablePhoneNumber
+        phoneNumberSid = twilioNumber.sid
+      } catch (error) {
+        console.warn(`Failed to get Twilio info for available number ${availablePhoneNumber}, purchasing new number:`, error)
+        // Remove invalid number from available list and fall through to purchase
+        await removeAvailablePhoneNumber(availablePhoneNumber).catch(() => {})
+        // Fall through to purchase new number
+        phoneNumber = undefined
+        phoneNumberSid = undefined
+      }
     }
 
-    if (!purchasedNumber.phoneNumber) {
-      return NextResponse.json(
-        { error: 'Failed to purchase phone number: No phone number returned' },
-        { status: 500 }
-      )
+    // If no available number or available number failed, purchase new one
+    if (!phoneNumber || !phoneNumberSid) {
+      try {
+        purchasedNumber = await searchAndPurchaseNumber(country, {
+          smsEnabled: true,
+          voiceEnabled: true,
+        })
+      } catch (error) {
+        console.error('Error purchasing phone number:', error)
+        return NextResponse.json(
+          { 
+            error: error instanceof Error ? error.message : 'Failed to purchase phone number',
+            details: 'Please ensure TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are set correctly'
+          },
+          { status: 500 }
+        )
+      }
+
+      if (!purchasedNumber.phoneNumber) {
+        return NextResponse.json(
+          { error: 'Failed to purchase phone number: No phone number returned' },
+          { status: 500 }
+        )
+      }
+
+      if (!purchasedNumber.sid) {
+        return NextResponse.json(
+          { error: 'Failed to purchase phone number: No SID returned' },
+          { status: 500 }
+        )
+      }
+
+      phoneNumber = purchasedNumber.phoneNumber
+      phoneNumberSid = purchasedNumber.sid
     }
 
-    if (!purchasedNumber.sid) {
-      return NextResponse.json(
-        { error: 'Failed to purchase phone number: No SID returned' },
-        { status: 500 }
-      )
-    }
-
-    // Configure webhook URLs for the purchased phone number
+    // Configure webhook URLs for the phone number
     // This is required for the cell to function, so failures should abort cell creation
     let updatedNumber
     try {
       updatedNumber = await configurePhoneNumberWebhooks(
-        purchasedNumber.sid,
+        phoneNumberSid,
         smsWebhookUrl,
         statusCallbackUrl
       )
     } catch (error) {
       console.error('Error configuring webhook URLs:', error)
+      // If we used an available number, put it back in the available list
+      if (availablePhoneNumber && phoneNumber === availablePhoneNumber) {
+        // Don't re-add if it was invalid, it's already removed
+      }
       return NextResponse.json(
         { 
           error: 'Failed to configure webhook URLs',
           details: error instanceof Error ? error.message : 'Unknown error',
-          phoneNumber: purchasedNumber.phoneNumber
+          phoneNumber: phoneNumber
         },
         { status: 500 }
       )
     }
 
-    // Create the cell with the purchased phone number
-    const cell = await createCell(purchasedNumber.phoneNumber, name, userId)
+    // Remove from available numbers if we used one
+    if (availablePhoneNumber && phoneNumber === availablePhoneNumber) {
+      await removeAvailablePhoneNumber(phoneNumber).catch((error) => {
+        console.warn(`Failed to remove ${phoneNumber} from available numbers:`, error)
+        // Don't fail cell creation if this fails
+      })
+    }
+
+    // Create the cell with the phone number
+    // orgId is null for personal mode, string for org mode
+    const cell = await createCell(phoneNumber, name, userId, undefined, orgId)
     
     // Return cell with webhook configuration status
     return NextResponse.json({
@@ -141,7 +189,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { userId } = await auth()
+    const { userId, orgId } = await auth()
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -159,7 +207,8 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const cell = await updateCell(id, name, userId, phoneNumber, systemPrompt)
+    // orgId is null for personal mode, string for org mode
+    const cell = await updateCell(id, name, userId, phoneNumber, systemPrompt, orgId)
     if (!cell) {
       return NextResponse.json(
         { error: 'Cell not found or access denied' },
@@ -179,7 +228,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const { userId } = await auth()
+    const { userId, orgId } = await auth()
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -197,12 +246,16 @@ export async function DELETE(request: Request) {
       )
     }
 
-    await deleteCell(id, userId)
+    // orgId is null for personal mode, string for org mode
+    await deleteCell(id, userId, orgId)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting cell:', error)
     return NextResponse.json(
-      { error: 'Failed to delete cell' },
+      { 
+        error: 'Failed to delete cell',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }

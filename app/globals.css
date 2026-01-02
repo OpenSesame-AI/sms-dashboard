@@ -124,6 +124,53 @@
   }
 }
 
+/* Clerk OrganizationSwitcher dark mode fixes */
+.dark .cl-userPreviewMainIdentifierText,
+.dark .cl-userPreviewMainIdentifierText__personalWorkspace {
+  color: var(--foreground);
+}
+
+.dark .cl-userPreviewTextContainer,
+.dark .cl-userPreviewTextContainer__personalWorkspace {
+  color: var(--foreground);
+}
+
+.dark .cl-userPreviewMainIdentifier,
+.dark .cl-userPreviewMainIdentifier__personalWorkspace {
+  color: var(--foreground);
+}
+
+.dark .cl-organizationSwitcherTrigger,
+.dark .cl-organizationSwitcherTrigger__personal {
+  color: var(--foreground);
+}
+
+.dark .cl-userPreview,
+.dark .cl-userPreview__personalWorkspace {
+  color: var(--foreground);
+}
+
+/* Clerk OrganizationSwitcher Popover dark mode fixes - text should be black */
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreviewMainIdentifierText,
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreviewMainIdentifierText__personalWorkspace {
+  color: #000000 !important;
+}
+
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreviewTextContainer,
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreviewTextContainer__personalWorkspace {
+  color: #000000 !important;
+}
+
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreviewMainIdentifier,
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreviewMainIdentifier__personalWorkspace {
+  color: #000000 !important;
+}
+
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreview,
+.dark .cl-organizationSwitcherPopoverActions .cl-userPreview__personalWorkspace {
+  color: #000000 !important;
+}
+
 ::view-transition-old(root), ::view-transition-new(root) {
     animation: none;
     mix-blend-mode: normal;

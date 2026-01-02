@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { SignIn, SignedIn, SignedOut } from "@clerk/nextjs"
+import { SignIn, SignedIn, SignedOut, OrganizationSwitcher } from "@clerk/nextjs"
 import { HeaderActions } from "@/components/header-actions"
 import { TableSelector } from "@/components/table-selector"
 import { AnalyticsButton } from "@/components/analytics-button"
@@ -34,6 +34,11 @@ export function PublicRouteWrapper({ children }: { children: React.ReactNode }) 
           </div>
           <div className="flex items-center gap-2">
             <HeaderActions />
+            <OrganizationSwitcher 
+              hidePersonal={false}
+              afterSelectOrganizationUrl="/"
+              afterSelectPersonalUrl="/"
+            />
             <AnimatedThemeToggler className="h-8 w-8" />
             <UserButton />
           </div>

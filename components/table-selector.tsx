@@ -31,21 +31,30 @@ import { useCell } from "./cell-context"
 import { Cell } from "@/lib/db/schema"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import { OnboardingDialog } from "./onboarding-dialog"
+import { useOrganization } from "@clerk/nextjs"
 
 export function TableSelector() {
   const { selectedCell, setSelectedCell } = useCell()
   const queryClient = useQueryClient()
+  const { organization } = useOrganization()
   
   const [isRenameDialogOpen, setIsRenameDialogOpen] = React.useState(false)
   const [renameValue, setRenameValue] = React.useState("")
   const [cellToRename, setCellToRename] = React.useState<Cell | null>(null)
   const [isAddCellDialogOpen, setIsAddCellDialogOpen] = React.useState(false)
+  const [isOnboardingOpen, setIsOnboardingOpen] = React.useState(false)
   const [newCellName, setNewCellName] = React.useState("")
   const [newCellCountry, setNewCellCountry] = React.useState("US")
+  const isClosingAfterSuccess = React.useRef(false)
+
+  // Include organization ID in query key so React Query treats different org contexts as separate queries
+  const orgId = organization?.id || null
+  const queryKey = ['cells', orgId]
 
   // Fetch cells from API
   const { data: cells = [], isLoading } = useQuery<Cell[]>({
-    queryKey: ['cells'],
+    queryKey,
     queryFn: async () => {
       const response = await fetch('/api/cells')
       if (!response.ok) {
@@ -55,19 +64,32 @@ export function TableSelector() {
     },
   })
 
-  // Auto-select first cell if none selected and cells exist
+  // When cells change (e.g., after org switch), check if selected cell is still valid
   React.useEffect(() => {
-    if (!selectedCell && cells.length > 0) {
-      setSelectedCell(cells[0])
+    if (!isLoading && cells.length > 0) {
+      // If there's a selected cell, check if it's still in the current cells list
+      if (selectedCell) {
+        const isStillValid = cells.some(cell => cell.id === selectedCell.id)
+        if (!isStillValid) {
+          // Selected cell is no longer available (e.g., switched org), select first available
+          setSelectedCell(cells[0])
+        }
+      } else {
+        // No selected cell, auto-select first one
+        setSelectedCell(cells[0])
+      }
+    } else if (!isLoading && cells.length === 0 && selectedCell) {
+      // No cells available but we have a selected cell, clear it
+      setSelectedCell(null)
     }
-  }, [selectedCell, cells, setSelectedCell])
+  }, [cells, selectedCell, isLoading, setSelectedCell])
 
-  // Auto-open Add Cell dialog if user has no cells
+  // Auto-open Onboarding dialog if user has no cells
   React.useEffect(() => {
-    if (!isLoading && cells.length === 0 && !isAddCellDialogOpen) {
-      setIsAddCellDialogOpen(true)
+    if (!isLoading && cells.length === 0 && !isOnboardingOpen && !isAddCellDialogOpen) {
+      setIsOnboardingOpen(true)
     }
-  }, [isLoading, cells.length, isAddCellDialogOpen])
+  }, [isLoading, cells.length, isOnboardingOpen, isAddCellDialogOpen])
 
   // Create cell mutation
   const createCellMutation = useMutation({
@@ -83,12 +105,20 @@ export function TableSelector() {
       }
       return response.json()
     },
-    onSuccess: (newCell) => {
-      queryClient.invalidateQueries({ queryKey: ['cells'] })
-      setSelectedCell(newCell)
+    onSuccess: async (newCell) => {
+      // Mark that we're closing due to successful creation
+      isClosingAfterSuccess.current = true
+      // Close dialog first before invalidating queries to prevent race condition
       setIsAddCellDialogOpen(false)
       setNewCellName("")
       setNewCellCountry("US")
+      setSelectedCell(newCell)
+      // Invalidate queries after dialog is closed
+      await queryClient.invalidateQueries({ queryKey: ['cells'] })
+      // Reset the flag after a short delay to allow dialog to close
+      setTimeout(() => {
+        isClosingAfterSuccess.current = false
+      }, 100)
       toast.success("Cell created", {
         description: `${newCell.name} has been created with phone number ${newCell.phoneNumber}`,
       })
@@ -198,7 +228,8 @@ export function TableSelector() {
 
   const handleDialogClose = (open: boolean) => {
     // Prevent closing if user has no cells - they must create at least one
-    if (!open && cells.length === 0 && !isLoading) {
+    // But allow closing if we're closing after successful creation
+    if (!open && cells.length === 0 && !isLoading && !isClosingAfterSuccess.current) {
       return
     }
     setIsAddCellDialogOpen(open)
@@ -206,6 +237,14 @@ export function TableSelector() {
       setNewCellName("")
       setNewCellCountry("US")
     }
+  }
+
+  const handleOnboardingComplete = (cell: Cell) => {
+    setIsOnboardingOpen(false)
+    setSelectedCell(cell)
+    toast.success("Onboarding complete!", {
+      description: "Your cell is ready to receive messages",
+    })
   }
 
   const selectedCellLabel = selectedCell?.name || (isLoading ? "Loading..." : "Select cell")
@@ -350,6 +389,11 @@ export function TableSelector() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <OnboardingDialog
+        open={isOnboardingOpen}
+        onComplete={handleOnboardingComplete}
+      />
     </>
   )
 }

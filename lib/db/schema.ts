@@ -4,7 +4,7 @@ export const phoneUserMappings = pgTable('phone_user_mappings', {
   id: uuid('id').primaryKey().defaultRandom(),
   phoneNumber: varchar('phone_number').notNull(),
   userId: varchar('user_id').notNull(),
-  cellId: uuid('cell_id').references(() => cells.id),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 })
@@ -13,7 +13,7 @@ export const smsConversations = pgTable('sms_conversations', {
   id: uuid('id').primaryKey().defaultRandom(),
   phoneNumber: varchar('phone_number').notNull(),
   userId: varchar('user_id').notNull(),
-  cellId: uuid('cell_id').references(() => cells.id),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
   direction: varchar('direction').notNull(),
   messageBody: text('message_body').notNull(),
   messageSid: varchar('message_sid'),
@@ -46,6 +46,7 @@ export const cells = pgTable('cells', {
   phoneNumber: varchar('phone_number').notNull(),
   name: varchar('name').notNull(),
   userId: varchar('user_id').notNull(),
+  organizationId: varchar('organization_id'), // nullable - null means personal cell
   systemPrompt: text('system_prompt'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -106,6 +107,12 @@ export const columnColors = pgTable('column_colors', {
   uniqueColumnCell: unique().on(table.columnId, table.cellId),
 }))
 
+export const availablePhoneNumbers = pgTable('available_phone_numbers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+})
+
 export type PhoneUserMapping = typeof phoneUserMappings.$inferSelect
 export type NewPhoneUserMapping = typeof phoneUserMappings.$inferInsert
 export type SmsConversation = typeof smsConversations.$inferSelect
@@ -126,4 +133,6 @@ export type AiAlertTrigger = typeof aiAlertTriggers.$inferSelect
 export type NewAiAlertTrigger = typeof aiAlertTriggers.$inferInsert
 export type ColumnColor = typeof columnColors.$inferSelect
 export type NewColumnColor = typeof columnColors.$inferInsert
+export type AvailablePhoneNumber = typeof availablePhoneNumbers.$inferSelect
+export type NewAvailablePhoneNumber = typeof availablePhoneNumbers.$inferInsert
 

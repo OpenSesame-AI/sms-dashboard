@@ -12,7 +12,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth()
+    const { userId, orgId } = await auth()
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -29,8 +29,8 @@ export async function GET(
       )
     }
 
-    // Verify ownership
-    const cell = await getCellById(id, userId)
+    // Verify ownership (orgId is null for personal mode, string for org mode)
+    const cell = await getCellById(id, userId, orgId)
     if (!cell) {
       return NextResponse.json(
         { error: 'Cell not found or access denied' },
@@ -54,7 +54,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth()
+    const { userId, orgId } = await auth()
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -73,8 +73,8 @@ export async function POST(
       )
     }
 
-    // Verify ownership
-    const cell = await getCellById(id, userId)
+    // Verify ownership (orgId is null for personal mode, string for org mode)
+    const cell = await getCellById(id, userId, orgId)
     if (!cell) {
       return NextResponse.json(
         { error: 'Cell not found or access denied' },
@@ -136,7 +136,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth()
+    const { userId, orgId } = await auth()
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -155,8 +155,8 @@ export async function DELETE(
       )
     }
 
-    // Verify ownership
-    const cell = await getCellById(id, userId)
+    // Verify ownership (orgId is null for personal mode, string for org mode)
+    const cell = await getCellById(id, userId, orgId)
     if (!cell) {
       return NextResponse.json(
         { error: 'Cell not found or access denied' },

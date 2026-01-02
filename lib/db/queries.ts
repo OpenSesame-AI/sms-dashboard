@@ -1,5 +1,5 @@
 import { db, postgresClient } from './index'
-import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors } from './schema'
+import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, availablePhoneNumbers } from './schema'
 import { eq, sql, desc, asc, and, gte, or, like, isNull } from 'drizzle-orm'
 
 export type Contact = {
@@ -588,18 +588,37 @@ export async function saveAiResults(
 }
 
 // Cell CRUD queries
-export async function getAllCells(userId: string) {
-  return await db
-    .select()
-    .from(cells)
-    .where(eq(cells.userId, userId))
-    .orderBy(asc(cells.createdAt))
+export async function getAllCells(userId: string, orgId?: string | null) {
+  if (orgId) {
+    // Organization mode: get org cells
+    return await db
+      .select()
+      .from(cells)
+      .where(eq(cells.organizationId, orgId))
+      .orderBy(asc(cells.createdAt))
+  } else {
+    // Personal mode: get user's personal cells (no org)
+    return await db
+      .select()
+      .from(cells)
+      .where(and(
+        eq(cells.userId, userId),
+        isNull(cells.organizationId)
+      ))
+      .orderBy(asc(cells.createdAt))
+  }
 }
 
-export async function getCellById(id: string, userId?: string) {
+export async function getCellById(id: string, userId?: string, orgId?: string | null) {
   const conditions = [eq(cells.id, id)]
-  if (userId) {
+  
+  if (orgId) {
+    // Organization mode: verify cell belongs to org
+    conditions.push(eq(cells.organizationId, orgId))
+  } else if (userId) {
+    // Personal mode: verify cell belongs to user and is personal
     conditions.push(eq(cells.userId, userId))
+    conditions.push(isNull(cells.organizationId))
   }
   
   const result = await db
@@ -614,13 +633,14 @@ export async function getCellById(id: string, userId?: string) {
 
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/constants"
 
-export async function createCell(phoneNumber: string, name: string, userId: string, systemPrompt?: string) {
+export async function createCell(phoneNumber: string, name: string, userId: string, systemPrompt?: string, organizationId?: string | null) {
   const result = await db
     .insert(cells)
     .values({
       phoneNumber,
       name,
       userId,
+      organizationId: organizationId || null,
       systemPrompt: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
     })
     .returning()
@@ -628,7 +648,7 @@ export async function createCell(phoneNumber: string, name: string, userId: stri
   return result[0]
 }
 
-export async function updateCell(id: string, name: string, userId: string, phoneNumber?: string, systemPrompt?: string) {
+export async function updateCell(id: string, name: string, userId: string, phoneNumber?: string, systemPrompt?: string, orgId?: string | null) {
   const updateData: { name: string; phoneNumber?: string; systemPrompt?: string; updatedAt: Date } = {
     name,
     updatedAt: new Date(),
@@ -642,19 +662,97 @@ export async function updateCell(id: string, name: string, userId: string, phone
     updateData.systemPrompt = systemPrompt
   }
   
+  // Build where condition based on context
+  const whereConditions = [eq(cells.id, id)]
+  if (orgId) {
+    // Organization mode: verify cell belongs to org
+    whereConditions.push(eq(cells.organizationId, orgId))
+  } else {
+    // Personal mode: verify cell belongs to user and is personal
+    whereConditions.push(eq(cells.userId, userId))
+    whereConditions.push(isNull(cells.organizationId))
+  }
+  
   const result = await db
     .update(cells)
     .set(updateData)
-    .where(and(eq(cells.id, id), eq(cells.userId, userId)))
+    .where(and(...whereConditions))
     .returning()
   
   return result[0] || null
 }
 
-export async function deleteCell(id: string, userId: string) {
+export async function deleteCell(id: string, userId: string, orgId?: string | null) {
+  // Build where condition based on context
+  const whereConditions = [eq(cells.id, id)]
+  if (orgId) {
+    // Organization mode: verify cell belongs to org
+    whereConditions.push(eq(cells.organizationId, orgId))
+  } else {
+    // Personal mode: verify cell belongs to user and is personal
+    whereConditions.push(eq(cells.userId, userId))
+    whereConditions.push(isNull(cells.organizationId))
+  }
+  
+  // Get the cell's phone number before deleting
+  const cell = await db
+    .select({ phoneNumber: cells.phoneNumber })
+    .from(cells)
+    .where(and(...whereConditions))
+    .limit(1)
+
+  if (cell.length === 0) {
+    throw new Error('Cell not found or access denied')
+  }
+
+  // Delete the cell
   await db
     .delete(cells)
-    .where(and(eq(cells.id, id), eq(cells.userId, userId)))
+    .where(and(...whereConditions))
+
+  // If cell was found and deleted, add phone number to available numbers
+  // Wrap in try-catch to prevent deletion failure if table doesn't exist yet
+  if (cell[0].phoneNumber) {
+    try {
+      await db
+        .insert(availablePhoneNumbers)
+        .values({ phoneNumber: cell[0].phoneNumber })
+        .onConflictDoNothing() // Ignore if already exists
+    } catch (error) {
+      // Log but don't fail deletion if adding to available numbers fails
+      // This can happen if the migration hasn't been run yet
+      console.warn(`Failed to add phone number ${cell[0].phoneNumber} to available numbers:`, error)
+    }
+  }
+}
+
+// Available Phone Numbers queries
+export async function getAvailablePhoneNumber(): Promise<string | null> {
+  const result = await db
+    .select({ phoneNumber: availablePhoneNumbers.phoneNumber })
+    .from(availablePhoneNumbers)
+    .orderBy(asc(availablePhoneNumbers.createdAt))
+    .limit(1)
+
+  return result.length > 0 ? result[0].phoneNumber : null
+}
+
+export async function removeAvailablePhoneNumber(phoneNumber: string) {
+  await db
+    .delete(availablePhoneNumbers)
+    .where(eq(availablePhoneNumbers.phoneNumber, phoneNumber))
+}
+
+export async function addAvailablePhoneNumber(phoneNumber: string) {
+  try {
+    await db
+      .insert(availablePhoneNumbers)
+      .values({ phoneNumber })
+      .onConflictDoNothing() // Ignore if already exists
+  } catch (error) {
+    console.warn(`Failed to add phone number ${phoneNumber} to available numbers:`, error)
+    throw error
+  }
 }
 
 // Cell Context CRUD queries
