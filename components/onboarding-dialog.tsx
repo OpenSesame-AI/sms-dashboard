@@ -38,6 +38,37 @@ export function OnboardingDialog({ open, onComplete }: OnboardingDialogProps) {
   const [newCellName, setNewCellName] = React.useState("")
   const [newCellCountry, setNewCellCountry] = React.useState("US")
   const queryClient = useQueryClient()
+  
+  // Check if Clerk popovers are open
+  const [isClerkPopoverOpen, setIsClerkPopoverOpen] = React.useState(false)
+  
+  React.useEffect(() => {
+    if (!open || typeof document === 'undefined') return
+    
+    const checkClerkPopovers = () => {
+      const clerkPopovers = document.querySelectorAll(
+        '[class*="cl-organizationSwitcherPopover"]:not([style*="display: none"]), ' +
+        '[class*="cl-userButtonPopover"]:not([style*="display: none"])'
+      )
+      setIsClerkPopoverOpen(clerkPopovers.length > 0)
+    }
+    
+    checkClerkPopovers()
+    const observer = new MutationObserver(checkClerkPopovers)
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    })
+    
+    const interval = setInterval(checkClerkPopovers, 100)
+    
+    return () => {
+      observer.disconnect()
+      clearInterval(interval)
+    }
+  }, [open])
 
   // Reset state when dialog opens
   React.useEffect(() => {
@@ -116,14 +147,20 @@ export function OnboardingDialog({ open, onComplete }: OnboardingDialogProps) {
   ]
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
+    <Dialog open={open} onOpenChange={() => {}} modal={true}>
       {/* Custom DialogContent without blocking overlay - use Portal directly to avoid default overlay */}
       <DialogPrimitive.Portal>
         {/* Custom overlay that excludes header area (header is 64px / 16rem tall) */}
+        {/* Overlay should not interfere with Clerk popovers which are rendered at z-10000+ */}
         {open && (
           <div 
             className="fixed top-16 left-0 right-0 bottom-0 z-[49] bg-black/50 pointer-events-none"
             aria-hidden="true"
+            style={{ 
+              pointerEvents: 'none',
+              // Ensure it doesn't block anything above z-50
+              isolation: 'isolate'
+            }}
           />
         )}
         {/* Prevent default Radix overlay from rendering */}
@@ -134,19 +171,58 @@ export function OnboardingDialog({ open, onComplete }: OnboardingDialogProps) {
         `}} />
         <DialogPrimitive.Content
           className={cn(
-            "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[51] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-2xl pointer-events-auto"
+            "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[51] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-2xl",
+            isClerkPopoverOpen ? "pointer-events-none" : "pointer-events-auto"
           )}
+          style={{
+            pointerEvents: isClerkPopoverOpen ? 'none' : 'auto'
+          }}
           onPointerDownOutside={(e) => {
+            // If Clerk popover is open, don't capture any events
+            if (isClerkPopoverOpen) {
+              e.preventDefault()
+              e.stopPropagation()
+              return false
+            }
+            
             // Allow clicks on header to pass through
             const target = e.target as HTMLElement
-            if (target.closest('header')) {
+            if (!target) return
+            
+            const isInHeader = target.closest('header')
+            const isInClerkPopover = target.closest('[class*="cl-organizationSwitcherPopover"], [class*="cl-userButtonPopover"], [class*="cl-popover"], [class*="cl-rootBox"], [class*="cl-modal"]')
+            
+            if (isInHeader || isInClerkPopover) {
               e.preventDefault()
+              e.stopPropagation()
+              return false
             }
           }}
           onInteractOutside={(e) => {
+            // If Clerk popover is open, don't capture any events
+            if (isClerkPopoverOpen) {
+              e.preventDefault()
+              e.stopPropagation()
+              return false
+            }
+            
             // Allow clicks on header to pass through
             const target = e.target as HTMLElement
-            if (target.closest('header')) {
+            if (!target) return
+            
+            const isInHeader = target.closest('header')
+            const isInClerkPopover = target.closest('[class*="cl-organizationSwitcherPopover"], [class*="cl-userButtonPopover"], [class*="cl-popover"], [class*="cl-rootBox"], [class*="cl-modal"]')
+            
+            if (isInHeader || isInClerkPopover) {
+              e.preventDefault()
+              e.stopPropagation()
+              return false
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            // Don't close dialog when Esc is pressed if Clerk popover is open
+            const clerkPopovers = document.querySelectorAll('[class*="cl-organizationSwitcherPopover"]:not([style*="display: none"]), [class*="cl-userButtonPopover"]:not([style*="display: none"])')
+            if (clerkPopovers.length > 0) {
               e.preventDefault()
             }
           }}

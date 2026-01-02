@@ -189,18 +189,32 @@ header > div {
   pointer-events: auto !important;
 }
 
-/* Prevent dialog overlays from blocking header */
-[data-radix-dialog-overlay],
-[class*="cl-organizationSwitcherPopover"] {
-  pointer-events: none !important;
+/* Ensure Clerk popovers are above dialogs - they need to be rendered above everything */
+[class*="cl-organizationSwitcherPopover"],
+[class*="cl-userButtonPopover"],
+[class*="cl-popover"],
+[class*="cl-modal"],
+[role="dialog"][class*="cl-"],
+[class*="cl-rootBox"] {
+  z-index: 10000 !important;
+  pointer-events: auto !important;
+  position: relative;
 }
 
-header ~ [data-radix-dialog-overlay],
-header ~ * [data-radix-dialog-overlay] {
+/* Ensure all Clerk popover content is interactive */
+[class*="cl-organizationSwitcherPopover"] *,
+[class*="cl-userButtonPopover"] *,
+[class*="cl-popover"] * {
+  pointer-events: auto !important;
+}
+
+/* Prevent dialog overlays from blocking header and Clerk popovers */
+[data-radix-dialog-overlay] {
   pointer-events: none !important;
 }
 
 /* But allow dialog content itself to be interactive */
 [data-radix-dialog-content] {
   pointer-events: auto !important;
+  z-index: 51 !important;
 }
