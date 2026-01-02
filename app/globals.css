@@ -175,3 +175,32 @@
     animation: none;
     mix-blend-mode: normal;
 }
+
+/* Ensure header buttons are always clickable, even when dialogs are open */
+header {
+  isolation: isolate;
+}
+
+header [class*="cl-"],
+header button,
+header > div {
+  position: relative;
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+}
+
+/* Prevent dialog overlays from blocking header */
+[data-radix-dialog-overlay],
+[class*="cl-organizationSwitcherPopover"] {
+  pointer-events: none !important;
+}
+
+header ~ [data-radix-dialog-overlay],
+header ~ * [data-radix-dialog-overlay] {
+  pointer-events: none !important;
+}
+
+/* But allow dialog content itself to be interactive */
+[data-radix-dialog-content] {
+  pointer-events: auto !important;
+}

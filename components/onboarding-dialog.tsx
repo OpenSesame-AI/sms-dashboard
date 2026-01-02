@@ -2,14 +2,15 @@
 
 import * as React from "react"
 import { Check, ChevronRight, ChevronLeft, Upload, Trash2, Link as LinkIcon, FileText } from "lucide-react"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -116,7 +117,40 @@ export function OnboardingDialog({ open, onComplete }: OnboardingDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="sm:max-w-2xl" showCloseButton={false}>
+      {/* Custom DialogContent without blocking overlay - use Portal directly to avoid default overlay */}
+      <DialogPrimitive.Portal>
+        {/* Custom overlay that excludes header area (header is 64px / 16rem tall) */}
+        {open && (
+          <div 
+            className="fixed top-16 left-0 right-0 bottom-0 z-[49] bg-black/50 pointer-events-none"
+            aria-hidden="true"
+          />
+        )}
+        {/* Prevent default Radix overlay from rendering */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          [data-radix-dialog-overlay] {
+            display: none !important;
+          }
+        `}} />
+        <DialogPrimitive.Content
+          className={cn(
+            "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[51] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-2xl pointer-events-auto"
+          )}
+          onPointerDownOutside={(e) => {
+            // Allow clicks on header to pass through
+            const target = e.target as HTMLElement
+            if (target.closest('header')) {
+              e.preventDefault()
+            }
+          }}
+          onInteractOutside={(e) => {
+            // Allow clicks on header to pass through
+            const target = e.target as HTMLElement
+            if (target.closest('header')) {
+              e.preventDefault()
+            }
+          }}
+        >
         <DialogHeader>
           <DialogTitle>Welcome to SMS Dashboard</DialogTitle>
           <DialogDescription>
@@ -260,7 +294,8 @@ export function OnboardingDialog({ open, onComplete }: OnboardingDialogProps) {
             </Button>
           )}
         </DialogFooter>
-      </DialogContent>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
     </Dialog>
   )
 }
