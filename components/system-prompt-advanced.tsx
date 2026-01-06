@@ -14,8 +14,6 @@ type AdvancedModeProps = {
   onChange: (value: string) => void
 }
 
-const RECOMMENDED_MAX_CHARS = 4000
-
 export function AdvancedMode({ value, onChange }: AdvancedModeProps) {
   const [isGenerateExpanded, setIsGenerateExpanded] = React.useState(false)
   const [description, setDescription] = React.useState("")
@@ -119,10 +117,7 @@ export function AdvancedMode({ value, onChange }: AdvancedModeProps) {
         <div className="flex items-center justify-between">
           <Label htmlFor="system-prompt-advanced">System Prompt</Label>
           <div className="text-xs text-muted-foreground">
-            {charCount.toLocaleString()} / {RECOMMENDED_MAX_CHARS.toLocaleString()} characters
-            {charCount > RECOMMENDED_MAX_CHARS && (
-              <span className="text-destructive ml-1">(over limit)</span>
-            )}
+            {charCount.toLocaleString()} characters
           </div>
         </div>
         <Textarea

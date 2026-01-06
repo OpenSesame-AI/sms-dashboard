@@ -154,8 +154,7 @@ export async function getPhoneNumberByNumber(phoneNumber: string) {
 export async function configurePhoneNumberWebhooks(
   phoneNumberSid: string,
   smsWebhookUrl: string,
-  statusCallbackUrl?: string,
-  whatsappWebhookUrl?: string
+  statusCallbackUrl?: string
 ) {
   const client = getTwilioClient()
 
@@ -163,8 +162,6 @@ export async function configurePhoneNumberWebhooks(
     const updateParams: {
       smsUrl?: string
       smsMethod?: string
-      whatsappUrl?: string
-      whatsappMethod?: string
       statusCallback?: string
       statusCallbackMethod?: string
     } = {}
@@ -172,11 +169,6 @@ export async function configurePhoneNumberWebhooks(
     if (smsWebhookUrl) {
       updateParams.smsUrl = smsWebhookUrl
       updateParams.smsMethod = 'POST'
-    }
-
-    if (whatsappWebhookUrl) {
-      updateParams.whatsappUrl = whatsappWebhookUrl
-      updateParams.whatsappMethod = 'POST'
     }
 
     if (statusCallbackUrl) {
@@ -200,14 +192,12 @@ export async function configurePhoneNumberWebhooks(
  * @param phoneNumber - Phone number in E.164 format (e.g., '+14155552671')
  * @param smsWebhookUrl - URL for incoming SMS messages
  * @param statusCallbackUrl - Optional URL for message status updates
- * @param whatsappWebhookUrl - Optional URL for incoming WhatsApp messages
  * @returns Updated phone number details
  */
 export async function configureWebhooksByPhoneNumber(
   phoneNumber: string,
   smsWebhookUrl: string,
-  statusCallbackUrl?: string,
-  whatsappWebhookUrl?: string
+  statusCallbackUrl?: string
 ) {
   const phoneNumberResource = await getPhoneNumberByNumber(phoneNumber)
 
@@ -222,8 +212,7 @@ export async function configureWebhooksByPhoneNumber(
   return await configurePhoneNumberWebhooks(
     phoneNumberResource.sid,
     smsWebhookUrl,
-    statusCallbackUrl,
-    whatsappWebhookUrl
+    statusCallbackUrl
   )
 }
 

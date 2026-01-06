@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { validatePhoneNumber, normalizePhoneNumber, formatWhatsAppNumber, getWhatsAppSandboxNumber, removeWhatsAppPrefix } from '@/lib/utils'
+import { validatePhoneNumber, normalizePhoneNumber } from '@/lib/utils'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, to, from_number, channel = 'sms' } = body
+    const { message, to, from_number } = body
 
     // Validate request body
     if (!message || typeof message !== 'string' || !message.trim()) {
@@ -28,21 +28,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate channel
-    if (channel !== 'sms' && channel !== 'whatsapp') {
-      return NextResponse.json(
-        { error: 'Channel must be either "sms" or "whatsapp"' },
-        { status: 400 }
-      )
-    }
-
-    // For WhatsApp, validate phone numbers without the whatsapp: prefix
-    const fromNumberToValidate = channel === 'whatsapp' 
-      ? removeWhatsAppPrefix(from_number) 
-      : from_number
-
     // Validate phone numbers
-    if (!validatePhoneNumber(fromNumberToValidate)) {
+    if (!validatePhoneNumber(from_number)) {
       return NextResponse.json(
         { error: `Invalid from_number: ${from_number}` },
         { status: 400 }
@@ -50,7 +37,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate and normalize recipient phone numbers
-    // Note: External API expects E.164 format and will handle whatsapp: prefix based on channel
     const normalizedRecipients: string[] = []
     for (const recipient of to) {
       if (typeof recipient !== 'string' || !recipient.trim()) {
@@ -60,19 +46,14 @@ export async function POST(request: NextRequest) {
         )
       }
       
-      // For WhatsApp, validate without the whatsapp: prefix
-      const recipientToValidate = channel === 'whatsapp'
-        ? removeWhatsAppPrefix(recipient)
-        : recipient
-      
-      if (!validatePhoneNumber(recipientToValidate)) {
+      if (!validatePhoneNumber(recipient)) {
         return NextResponse.json(
           { error: `Invalid recipient phone number: ${recipient}` },
           { status: 400 }
         )
       }
 
-      const normalized = normalizePhoneNumber(recipientToValidate)
+      const normalized = normalizePhoneNumber(recipient)
       if (!normalized) {
         return NextResponse.json(
           { error: `Could not normalize phone number: ${recipient}` },
@@ -80,30 +61,18 @@ export async function POST(request: NextRequest) {
         )
       }
       
-      // Send in E.164 format - external API will add whatsapp: prefix based on channel parameter
       normalizedRecipients.push(normalized)
     }
 
     // Normalize from_number
-    // For WhatsApp, always use Sandbox number (regular SMS numbers can't send WhatsApp)
-    // For SMS, use the provided number
-    let finalFromNumber: string
-    if (channel === 'whatsapp') {
-      // For WhatsApp, always use Sandbox number in E.164 format
-      // Regular Twilio numbers can't send WhatsApp - need Sandbox or WhatsApp Business Account
-      const sandboxNumber = getWhatsAppSandboxNumber()
-      finalFromNumber = removeWhatsAppPrefix(sandboxNumber)
-    } else {
-      // For SMS, normalize and use the provided number
-      const normalizedFromNumber = normalizePhoneNumber(from_number)
-      if (!normalizedFromNumber) {
-        return NextResponse.json(
-          { error: `Could not normalize from_number: ${from_number}` },
-          { status: 400 }
-        )
-      }
-      finalFromNumber = normalizedFromNumber
+    const normalizedFromNumber = normalizePhoneNumber(from_number)
+    if (!normalizedFromNumber) {
+      return NextResponse.json(
+        { error: `Could not normalize from_number: ${from_number}` },
+        { status: 400 }
+      )
     }
+    const finalFromNumber = normalizedFromNumber
 
     // Get admin token from environment variable
     const adminToken = process.env.ADMIN_TOKEN
@@ -133,7 +102,6 @@ export async function POST(request: NextRequest) {
         message: message.trim(), 
         to: normalizedRecipients, 
         from_number: finalFromNumber,
-        channel: channel 
       }),
     })
 
@@ -143,7 +111,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { 
           ok: false,
-          error: responseData.error || `${channel.toUpperCase()} broadcast failed with status ${response.status}` 
+          error: responseData.error || `SMS broadcast failed with status ${response.status}` 
         },
         { status: response.status }
       )

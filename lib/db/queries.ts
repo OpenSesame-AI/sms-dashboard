@@ -206,23 +206,22 @@ export type ConversationMessage = {
   text: string
   timestamp: string
   isInbound: boolean
-  channel?: string
 }
 
 export async function getConversationsByPhoneNumber(
   phoneNumber: string,
-  cellId?: string,
-  channel?: string
+  cellId?: string
 ): Promise<ConversationMessage[]> {
   const conditions = [eq(smsConversations.phoneNumber, phoneNumber)]
   
   if (cellId) {
-    conditions.push(eq(smsConversations.cellId, cellId))
-  }
-  
-  // Filter by channel if provided to keep SMS and WhatsApp conversations separate
-  if (channel) {
-    conditions.push(eq(smsConversations.channel, channel))
+    // Include messages for this cellId OR messages without a cellId (for backward compatibility)
+    conditions.push(
+      or(
+        eq(smsConversations.cellId, cellId),
+        sql`${smsConversations.cellId} IS NULL`
+      ) as any
+    )
   }
   
   const conversations = await db
@@ -238,7 +237,6 @@ export async function getConversationsByPhoneNumber(
       ? new Date(conv.timestamp).toLocaleString()
       : new Date().toLocaleString(),
     isInbound: conv.direction.toLowerCase() === 'inbound',
-    channel: conv.channel || 'sms',
   }))
 }
 

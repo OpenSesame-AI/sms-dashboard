@@ -19,7 +19,6 @@ export const smsConversations = pgTable('sms_conversations', {
   messageSid: varchar('message_sid'),
   timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow(),
   status: varchar('status'),
-  channel: varchar('channel').notNull().default('sms'),
 })
 
 export const aiAnalysisColumns = pgTable('ai_analysis_columns', {
