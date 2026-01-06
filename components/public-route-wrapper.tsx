@@ -8,6 +8,7 @@ import { AnalyticsButton } from "@/components/analytics-button"
 import { ContextButton } from "@/components/context-button"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import { UserButton } from "@clerk/nextjs"
+import { WebViewWarning } from "@/components/webview-warning"
 
 export function PublicRouteWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -20,6 +21,7 @@ export function PublicRouteWrapper({ children }: { children: React.ReactNode }) 
   return (
     <>
       <SignedOut>
+        <WebViewWarning />
         <div className="flex min-h-screen items-center justify-center">
           <SignIn 
             routing="path"

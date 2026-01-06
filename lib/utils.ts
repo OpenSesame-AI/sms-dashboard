@@ -86,3 +86,62 @@ export function removeWhatsAppPrefix(phoneNumber: string): string {
     ? phoneNumber.replace('whatsapp:', '') 
     : phoneNumber
 }
+
+/**
+ * Detect if the current environment is a WebView (in-app browser)
+ * Checks for common WebView user agent patterns from social media apps
+ * @param userAgent - Optional user agent string (defaults to navigator.userAgent)
+ * @returns true if running in a WebView
+ */
+export function isWebView(userAgent?: string): boolean {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const ua = userAgent || window.navigator.userAgent
+
+  // LinkedIn in-app browser
+  if (ua.includes('LinkedInApp')) {
+    return true
+  }
+
+  // Facebook in-app browser
+  if (ua.includes('FBAN') || ua.includes('FBAV')) {
+    return true
+  }
+
+  // Instagram in-app browser
+  if (ua.includes('Instagram')) {
+    return true
+  }
+
+  // Twitter/X in-app browser
+  if (ua.includes('Twitter')) {
+    return true
+  }
+
+  // Generic Android WebView (wv indicates WebView)
+  if (ua.includes('wv') && !ua.includes('Chrome')) {
+    return true
+  }
+
+  // iOS WebView detection (no Safari in user agent but has Mobile)
+  // iOS Safari includes "Safari" but WebView doesn't
+  if (
+    /iPhone|iPad|iPod/.test(ua) &&
+    ua.includes('Mobile') &&
+    !ua.includes('Safari')
+  ) {
+    return true
+  }
+
+  // Additional check: if it's mobile but doesn't have standard browser indicators
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+  const hasStandardBrowser = ua.includes('Chrome') || ua.includes('Safari') || ua.includes('Firefox')
+  
+  if (isMobile && !hasStandardBrowser) {
+    return true
+  }
+
+  return false
+}
