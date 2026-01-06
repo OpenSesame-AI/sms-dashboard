@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { AnalyticsDialogContent } from "@/components/analytics-dialog-content"
+import { useCell } from "@/components/cell-context"
 import type {
   AnalyticsSummary,
   MessagesOverTime,
@@ -26,6 +27,7 @@ interface AnalyticsDialogProps {
 }
 
 export function AnalyticsDialog({ open, onOpenChange }: AnalyticsDialogProps) {
+  const { selectedCell } = useCell()
   const [data, setData] = React.useState<{
     summary: AnalyticsSummary
     messagesOverTime: MessagesOverTime[]
@@ -39,10 +41,10 @@ export function AnalyticsDialog({ open, onOpenChange }: AnalyticsDialogProps) {
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    if (open) {
+    if (open && selectedCell) {
       setLoading(true)
       setError(null)
-      fetch('/api/analytics')
+      fetch(`/api/analytics?cellId=${selectedCell.id}`)
         .then((res) => {
           if (!res.ok) {
             throw new Error('Failed to fetch analytics')
@@ -58,11 +60,14 @@ export function AnalyticsDialog({ open, onOpenChange }: AnalyticsDialogProps) {
           setError(err.message || 'Failed to load analytics')
           setLoading(false)
         })
+    } else if (open && !selectedCell) {
+      setError('Please select a cell to view analytics')
+      setLoading(false)
     } else {
       // Reset data when dialog closes to ensure fresh data on next open
       setData(null)
     }
-  }, [open])
+  }, [open, selectedCell])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -73,7 +78,9 @@ export function AnalyticsDialog({ open, onOpenChange }: AnalyticsDialogProps) {
             Analytics
           </DialogTitle>
           <DialogDescription>
-            View insights and metrics for your SMS dashboard.
+            {selectedCell 
+              ? `View insights and metrics for ${selectedCell.name}.`
+              : 'View insights and metrics for your SMS dashboard.'}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4">

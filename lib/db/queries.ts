@@ -206,23 +206,29 @@ export type ConversationMessage = {
   text: string
   timestamp: string
   isInbound: boolean
+  channel?: string
 }
 
 export async function getConversationsByPhoneNumber(
   phoneNumber: string,
-  cellId?: string
+  cellId?: string,
+  channel?: string
 ): Promise<ConversationMessage[]> {
+  const conditions = [eq(smsConversations.phoneNumber, phoneNumber)]
+  
+  if (cellId) {
+    conditions.push(eq(smsConversations.cellId, cellId))
+  }
+  
+  // Filter by channel if provided to keep SMS and WhatsApp conversations separate
+  if (channel) {
+    conditions.push(eq(smsConversations.channel, channel))
+  }
+  
   const conversations = await db
     .select()
     .from(smsConversations)
-    .where(
-      cellId
-        ? and(
-            eq(smsConversations.phoneNumber, phoneNumber),
-            eq(smsConversations.cellId, cellId)
-          )
-        : eq(smsConversations.phoneNumber, phoneNumber)
-    )
+    .where(conditions.length > 1 ? and(...conditions) : conditions[0])
     .orderBy(asc(smsConversations.timestamp))
 
   return conversations.map((conv) => ({
@@ -232,6 +238,7 @@ export async function getConversationsByPhoneNumber(
       ? new Date(conv.timestamp).toLocaleString()
       : new Date().toLocaleString(),
     isInbound: conv.direction.toLowerCase() === 'inbound',
+    channel: conv.channel || 'sms',
   }))
 }
 
@@ -244,9 +251,12 @@ export type AnalyticsSummary = {
   deliveryRate: number
 }
 
-export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
+export async function getAnalyticsSummary(cellId?: string): Promise<AnalyticsSummary> {
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+  const messageConditions = cellId ? [eq(smsConversations.cellId, cellId)] : []
+  const contactConditions = cellId ? [eq(phoneUserMappings.cellId, cellId)] : []
 
   // Get total messages
   const totalMessagesResult = await db
@@ -254,6 +264,7 @@ export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
+    .where(messageConditions.length > 0 ? and(...messageConditions) : undefined)
 
   // Get total contacts
   const totalContactsResult = await db
@@ -261,6 +272,7 @@ export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
       count: sql<number>`count(*)::int`,
     })
     .from(phoneUserMappings)
+    .where(contactConditions.length > 0 ? and(...contactConditions) : undefined)
 
   // Get inbound/outbound counts
   const directionStats = await db
@@ -269,6 +281,7 @@ export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
+    .where(messageConditions.length > 0 ? and(...messageConditions) : undefined)
     .groupBy(smsConversations.direction)
 
   // Get status breakdown for delivery rate
@@ -278,6 +291,7 @@ export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
+    .where(messageConditions.length > 0 ? and(...messageConditions) : undefined)
     .groupBy(smsConversations.status)
 
   const inboundCount =
@@ -305,9 +319,14 @@ export type MessagesOverTime = {
   count: number
 }
 
-export async function getMessagesOverTime(): Promise<MessagesOverTime[]> {
+export async function getMessagesOverTime(cellId?: string): Promise<MessagesOverTime[]> {
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+  const conditions = [gte(smsConversations.timestamp, thirtyDaysAgo)]
+  if (cellId) {
+    conditions.push(eq(smsConversations.cellId, cellId))
+  }
 
   const results = await db
     .select({
@@ -315,7 +334,7 @@ export async function getMessagesOverTime(): Promise<MessagesOverTime[]> {
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
-    .where(gte(smsConversations.timestamp, thirtyDaysAgo))
+    .where(and(...conditions))
     .groupBy(sql`to_char(${smsConversations.timestamp}, 'YYYY-MM-DD')`)
     .orderBy(asc(sql`to_char(${smsConversations.timestamp}, 'YYYY-MM-DD')`))
 
@@ -331,9 +350,14 @@ export type MessagesByDirection = {
   outbound: number
 }
 
-export async function getMessagesByDirection(): Promise<MessagesByDirection[]> {
+export async function getMessagesByDirection(cellId?: string): Promise<MessagesByDirection[]> {
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+  const conditions = [gte(smsConversations.timestamp, thirtyDaysAgo)]
+  if (cellId) {
+    conditions.push(eq(smsConversations.cellId, cellId))
+  }
 
   const results = await db
     .select({
@@ -342,7 +366,7 @@ export async function getMessagesByDirection(): Promise<MessagesByDirection[]> {
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
-    .where(gte(smsConversations.timestamp, thirtyDaysAgo))
+    .where(and(...conditions))
     .groupBy(
       sql`to_char(${smsConversations.timestamp}, 'YYYY-MM-DD')`,
       smsConversations.direction
@@ -379,13 +403,16 @@ export type StatusBreakdown = {
   count: number
 }
 
-export async function getStatusBreakdown(): Promise<StatusBreakdown[]> {
+export async function getStatusBreakdown(cellId?: string): Promise<StatusBreakdown[]> {
+  const conditions = cellId ? [eq(smsConversations.cellId, cellId)] : []
+
   const results = await db
     .select({
       status: smsConversations.status,
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(smsConversations.status)
     .orderBy(desc(sql`count(*)`))
 
@@ -403,7 +430,9 @@ export type TopActiveContact = {
   userId: string
 }
 
-export async function getTopActiveContacts(limit: number = 10): Promise<TopActiveContact[]> {
+export async function getTopActiveContacts(limit: number = 10, cellId?: string): Promise<TopActiveContact[]> {
+  const conditions = cellId ? [eq(smsConversations.cellId, cellId)] : []
+
   const results = await db
     .select({
       phoneNumber: smsConversations.phoneNumber,
@@ -411,6 +440,7 @@ export async function getTopActiveContacts(limit: number = 10): Promise<TopActiv
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(smsConversations.phoneNumber, smsConversations.userId)
     .orderBy(desc(sql`count(*)`))
     .limit(limit)
@@ -427,9 +457,14 @@ export type NewContactsOverTime = {
   count: number
 }
 
-export async function getNewContactsOverTime(): Promise<NewContactsOverTime[]> {
+export async function getNewContactsOverTime(cellId?: string): Promise<NewContactsOverTime[]> {
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+  const conditions = [gte(phoneUserMappings.createdAt, thirtyDaysAgo)]
+  if (cellId) {
+    conditions.push(eq(phoneUserMappings.cellId, cellId))
+  }
 
   const results = await db
     .select({
@@ -437,7 +472,7 @@ export async function getNewContactsOverTime(): Promise<NewContactsOverTime[]> {
       count: sql<number>`count(*)::int`,
     })
     .from(phoneUserMappings)
-    .where(gte(phoneUserMappings.createdAt, thirtyDaysAgo))
+    .where(and(...conditions))
     .groupBy(sql`to_char(${phoneUserMappings.createdAt}, 'YYYY-MM-DD')`)
     .orderBy(asc(sql`to_char(${phoneUserMappings.createdAt}, 'YYYY-MM-DD')`))
 
@@ -452,13 +487,16 @@ export type HourlyDistribution = {
   count: number
 }
 
-export async function getHourlyDistribution(): Promise<HourlyDistribution[]> {
+export async function getHourlyDistribution(cellId?: string): Promise<HourlyDistribution[]> {
+  const conditions = cellId ? [eq(smsConversations.cellId, cellId)] : []
+
   const results = await db
     .select({
       hour: sql<number>`extract(hour from ${smsConversations.timestamp})::int`,
       count: sql<number>`count(*)::int`,
     })
     .from(smsConversations)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(sql`extract(hour from ${smsConversations.timestamp})`)
     .orderBy(asc(sql`extract(hour from ${smsConversations.timestamp})`))
 

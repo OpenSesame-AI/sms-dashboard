@@ -9,8 +9,18 @@ import {
   getHourlyDistribution,
 } from '@/lib/db/queries'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const cellId = searchParams.get('cellId') || undefined
+
+    if (!cellId) {
+      return NextResponse.json(
+        { error: 'cellId is required' },
+        { status: 400 }
+      )
+    }
+
     const [
       summary,
       messagesOverTime,
@@ -20,13 +30,13 @@ export async function GET() {
       newContactsOverTime,
       hourlyDistribution,
     ] = await Promise.all([
-      getAnalyticsSummary(),
-      getMessagesOverTime(),
-      getMessagesByDirection(),
-      getStatusBreakdown(),
-      getTopActiveContacts(10),
-      getNewContactsOverTime(),
-      getHourlyDistribution(),
+      getAnalyticsSummary(cellId),
+      getMessagesOverTime(cellId),
+      getMessagesByDirection(cellId),
+      getStatusBreakdown(cellId),
+      getTopActiveContacts(10, cellId),
+      getNewContactsOverTime(cellId),
+      getHourlyDistribution(cellId),
     ])
 
     return NextResponse.json({
@@ -46,6 +56,7 @@ export async function GET() {
     )
   }
 }
+
 
 
 
