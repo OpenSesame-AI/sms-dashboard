@@ -1115,11 +1115,13 @@ export function ContactsTable<TData, TValue>({
   const [isStartConversationDialogOpen, setIsStartConversationDialogOpen] = React.useState(false)
   const [conversationPhoneNumber, setConversationPhoneNumber] = React.useState("")
   const [conversationMessage, setConversationMessage] = React.useState("Hello! I'd like to start a conversation with you.")
+  const [conversationChannel, setConversationChannel] = React.useState<'sms' | 'whatsapp'>('sms')
 
   // Message sheet state (for message icon click)
   const [isMessageSheetOpen, setIsMessageSheetOpen] = React.useState(false)
   const [sheetPhoneNumber, setSheetPhoneNumber] = React.useState("")
   const [sheetMessage, setSheetMessage] = React.useState("")
+  const [sheetChannel, setSheetChannel] = React.useState<'sms' | 'whatsapp'>('sms')
   
   // Mock conversation messages - in a real app, this would come from an API
   const [conversationMessages, setConversationMessages] = React.useState<Array<{
@@ -1127,6 +1129,7 @@ export function ContactsTable<TData, TValue>({
     text: string
     timestamp: string
     isInbound: boolean
+    channel?: string
   }>>([])
   
   // Phone number search state
@@ -1187,8 +1190,8 @@ export function ContactsTable<TData, TValue>({
   React.useEffect(() => {
     if (isMessageSheetOpen && sheetPhoneNumber && selectedCell) {
       const url = selectedCell.id
-        ? `/api/conversations?phoneNumber=${encodeURIComponent(sheetPhoneNumber)}&cellId=${encodeURIComponent(selectedCell.id)}`
-        : `/api/conversations?phoneNumber=${encodeURIComponent(sheetPhoneNumber)}`
+        ? `/api/conversations?phoneNumber=${encodeURIComponent(sheetPhoneNumber)}&cellId=${encodeURIComponent(selectedCell.id)}&channel=${encodeURIComponent(sheetChannel)}`
+        : `/api/conversations?phoneNumber=${encodeURIComponent(sheetPhoneNumber)}&channel=${encodeURIComponent(sheetChannel)}`
       fetch(url)
         .then((res) => {
           if (!res.ok) {
@@ -1207,7 +1210,7 @@ export function ContactsTable<TData, TValue>({
       // Clear messages when sheet closes
       setConversationMessages([])
     }
-  }, [isMessageSheetOpen, sheetPhoneNumber, selectedCell])
+  }, [isMessageSheetOpen, sheetPhoneNumber, selectedCell, sheetChannel])
 
   // Scroll to bottom when sheet opens or messages change
   React.useEffect(() => {
@@ -1681,33 +1684,60 @@ export function ContactsTable<TData, TValue>({
     // Conversations will be fetched by useEffect when sheet opens
   }
 
-  const handleSendSheetMessage = () => {
-    // TODO: Implement actual message sending functionality
+  const handleSendSheetMessage = async () => {
     const phoneNumber = String(sheetPhoneNumber || "")
     const message = String(sheetMessage || "").trim()
     
-    if (!message) return
+    if (!message || !phoneNumber) return
 
-    // Add message to conversation
-    const newMessage = {
-      id: Date.now().toString(),
-      text: message,
-      timestamp: new Date().toLocaleString(),
-      isInbound: false, // Outbound (sent by agent)
-    }
-    
-    setConversationMessages((prev) => [...prev, newMessage])
-    setSheetMessage("")
-    
-    // Scroll to bottom after message is added
-    setTimeout(() => {
-      if (messageAreaRef.current) {
-        messageAreaRef.current.scrollTop = messageAreaRef.current.scrollHeight
+    try {
+      const res = await fetch("/api/broadcast", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          message, 
+          to: [phoneNumber], 
+          from_number: selectedCell?.phoneNumber,
+          channel: sheetChannel 
+        }),
+      })
+
+      const data = await res.json()
+      const ok = typeof data?.ok === "boolean" ? data.ok : res.ok
+      
+      if (!ok) {
+        throw new Error(data?.error || "Failed to send message")
       }
-    }, 50)
-    
-    console.log("Sending message to:", phoneNumber)
-    console.log("Message:", message)
+
+      // Add message to conversation
+      const newMessage = {
+        id: Date.now().toString(),
+        text: message,
+        timestamp: new Date().toLocaleString(),
+        isInbound: false, // Outbound (sent by agent)
+        channel: sheetChannel,
+      }
+      
+      setConversationMessages((prev) => [...prev, newMessage])
+      setSheetMessage("")
+      
+      // Scroll to bottom after message is added
+      setTimeout(() => {
+        if (messageAreaRef.current) {
+          messageAreaRef.current.scrollTop = messageAreaRef.current.scrollHeight
+        }
+      }, 50)
+      
+      toast.success("Message sent", {
+        description: `${sheetChannel.toUpperCase()} message sent to ${phoneNumber}`,
+      })
+    } catch (err) {
+      toast.error("Failed to send message", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      })
+    }
   }
 
   const [isSendingConversation, setIsSendingConversation] = React.useState(false)
@@ -1726,7 +1756,12 @@ export function ContactsTable<TData, TValue>({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message, to: [phoneNumber], from_number: selectedCell?.phoneNumber }),
+        body: JSON.stringify({ 
+          message, 
+          to: [phoneNumber], 
+          from_number: selectedCell?.phoneNumber,
+          channel: conversationChannel 
+        }),
       })
 
       const data = await res.json()
@@ -1737,12 +1772,13 @@ export function ContactsTable<TData, TValue>({
       }
       
       toast.success("Message sent", {
-        description: `Conversation started with ${phoneNumber}`,
+        description: `${conversationChannel.toUpperCase()} conversation started with ${phoneNumber}`,
       })
 
       // Reset and close dialog
       setConversationPhoneNumber("")
       setConversationMessage("Hello! I'd like to start a conversation with you.")
+      setConversationChannel('sms')
       setIsStartConversationDialogOpen(false)
     } catch (err) {
       toast.error("Failed to start conversation", {
@@ -3481,6 +3517,18 @@ export function ContactsTable<TData, TValue>({
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
+              <Label htmlFor="conversation-channel">Channel</Label>
+              <Select value={conversationChannel} onValueChange={(value: 'sms' | 'whatsapp') => setConversationChannel(value)}>
+                <SelectTrigger id="conversation-channel">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sms">SMS</SelectItem>
+                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="conversation-phone">Phone Number</Label>
               <Input
                 id="conversation-phone"
@@ -3508,6 +3556,7 @@ export function ContactsTable<TData, TValue>({
                 setIsStartConversationDialogOpen(false)
                 setConversationPhoneNumber("")
                 setConversationMessage("Hello! I'd like to start a conversation with you.")
+                setConversationChannel('sms')
               }}
             >
               Cancel
@@ -3526,10 +3575,23 @@ export function ContactsTable<TData, TValue>({
         <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
           <div className="border-b p-4">
             <SheetHeader>
-              <SheetTitle>Conversation</SheetTitle>
-              <SheetDescription>
-                Thread for {sheetPhoneNumber || "this contact"}
-              </SheetDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <SheetTitle>Conversation</SheetTitle>
+                  <SheetDescription>
+                    Thread for {sheetPhoneNumber || "this contact"}
+                  </SheetDescription>
+                </div>
+                <Select value={sheetChannel} onValueChange={(value: 'sms' | 'whatsapp') => setSheetChannel(value)}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </SheetHeader>
           </div>
           
@@ -3557,7 +3619,14 @@ export function ContactsTable<TData, TValue>({
                           : "bg-primary text-primary-foreground"
                       }`}
                     >
-                      <p className="text-sm">{msg.text}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm flex-1">{msg.text}</p>
+                        {msg.channel && msg.channel !== 'sms' && (
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {msg.channel === 'whatsapp' ? 'WA' : msg.channel}
+                          </Badge>
+                        )}
+                      </div>
                       <p className={`text-xs mt-1 ${
                         msg.isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
                       }`}>

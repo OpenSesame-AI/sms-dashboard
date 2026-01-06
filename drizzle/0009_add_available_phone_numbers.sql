@@ -5,3 +5,4 @@ CREATE TABLE IF NOT EXISTS "available_phone_numbers" (
   "created_at" timestamp with time zone DEFAULT now()
 );
 
+

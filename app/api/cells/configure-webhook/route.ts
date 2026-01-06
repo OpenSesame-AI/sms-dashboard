@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     const smsWebhookUrl = process.env.TWILIO_SMS_WEBHOOK_URL
+    const whatsappWebhookUrl = process.env.TWILIO_WHATSAPP_WEBHOOK_URL
     const statusCallbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL
 
     if (!smsWebhookUrl) {
@@ -27,13 +28,15 @@ export async function POST(request: NextRequest) {
       const updatedNumber = await configureWebhooksByPhoneNumber(
         phoneNumber,
         smsWebhookUrl,
-        statusCallbackUrl
+        statusCallbackUrl,
+        whatsappWebhookUrl
       )
 
       return NextResponse.json({
         success: true,
         phoneNumber: updatedNumber.phoneNumber,
         smsUrl: updatedNumber.smsUrl,
+        whatsappUrl: (updatedNumber as any).whatsappUrl || null,
         statusCallback: updatedNumber.statusCallback,
       })
     } catch (error) {

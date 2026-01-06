@@ -21,7 +21,16 @@ export function PublicRouteWrapper({ children }: { children: React.ReactNode }) 
     <>
       <SignedOut>
         <div className="flex min-h-screen items-center justify-center">
-          <SignIn />
+          <SignIn 
+            routing="path"
+            path="/"
+            signUpUrl="/"
+            appearance={{
+              elements: {
+                rootBox: "mx-auto",
+              },
+            }}
+          />
         </div>
         {children}
       </SignedOut>

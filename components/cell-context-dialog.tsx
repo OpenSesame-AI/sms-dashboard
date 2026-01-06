@@ -17,7 +17,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { CellContext } from "@/lib/db/schema"
-import { DEFAULT_SYSTEM_PROMPT } from "@/lib/constants"
+import { DEFAULT_SYSTEM_PROMPT, SYSTEM_PROMPT_TEMPLATES } from "@/lib/constants"
+import { TemplatesMode } from "@/components/system-prompt-templates"
+import { GuidedMode } from "@/components/system-prompt-guided"
+import { AdvancedMode } from "@/components/system-prompt-advanced"
 
 type CellContextDialogProps = {
   cellId: string
@@ -39,6 +42,7 @@ export function CellContextDialog({
   onSystemPromptSaved,
 }: CellContextDialogProps) {
   const [activeTab, setActiveTab] = React.useState<"text" | "files" | "url">("text")
+  const [promptMode, setPromptMode] = React.useState<"templates" | "guided" | "advanced">("advanced")
   const [dragActive, setDragActive] = React.useState(false)
   const [editedPrompt, setEditedPrompt] = React.useState(systemPrompt || "")
   const [urlInput, setUrlInput] = React.useState("")
@@ -49,8 +53,20 @@ export function CellContextDialog({
   React.useEffect(() => {
     if (open) {
       setEditedPrompt(systemPrompt || "")
+      // Reset to advanced mode when dialog opens
+      setPromptMode("advanced")
     }
   }, [open, systemPrompt])
+
+  // Handle template selection
+  const handleTemplateSelect = (templateId: string) => {
+    const template = SYSTEM_PROMPT_TEMPLATES.find((t) => t.id === templateId)
+    if (template) {
+      setEditedPrompt(template.prompt)
+      setPromptMode("advanced")
+      toast.success(`Template "${template.name}" applied`)
+    }
+  }
 
   // Fetch context items
   const { data: contextItems = [], isLoading } = useQuery<CellContext[]>({
@@ -281,38 +297,79 @@ export function CellContextDialog({
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {activeTab === "text" && (
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="system-prompt">System Prompt</Label>
-                <Textarea
-                  id="system-prompt"
-                  value={editedPrompt}
-                  onChange={(e) => setEditedPrompt(e.target.value)}
-                  placeholder="Enter the system prompt for this cell..."
-                  rows={12}
-                />
+            <div className="flex flex-col h-full">
+              {/* Mode Switcher */}
+              <div className="flex gap-2 border-b px-4 pt-4">
+                <button
+                  onClick={() => setPromptMode("templates")}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    promptMode === "templates"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Templates
+                </button>
+                <button
+                  onClick={() => setPromptMode("guided")}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    promptMode === "guided"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Guided
+                </button>
+                <button
+                  onClick={() => setPromptMode("advanced")}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    promptMode === "advanced"
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Advanced
+                </button>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setEditedPrompt(DEFAULT_SYSTEM_PROMPT)}
-                  disabled={
-                    updateSystemPromptMutation.isPending ||
-                    editedPrompt === DEFAULT_SYSTEM_PROMPT
-                  }
-                >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  Reset to Default
-                </Button>
-                <Button
-                  onClick={() => updateSystemPromptMutation.mutate(editedPrompt)}
-                  disabled={
-                    updateSystemPromptMutation.isPending ||
-                    editedPrompt === (systemPrompt || "")
-                  }
-                >
-                  {updateSystemPromptMutation.isPending ? "Saving..." : "Save System Prompt"}
-                </Button>
+
+              {/* Mode Content */}
+              <div className="flex-1 overflow-y-auto">
+                {promptMode === "templates" && (
+                  <TemplatesMode onSelectTemplate={handleTemplateSelect} />
+                )}
+                {promptMode === "guided" && (
+                  <GuidedMode value={editedPrompt} onChange={setEditedPrompt} />
+                )}
+                {promptMode === "advanced" && (
+                  <AdvancedMode value={editedPrompt} onChange={setEditedPrompt} />
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="border-t p-4 space-y-2">
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setEditedPrompt(DEFAULT_SYSTEM_PROMPT)}
+                    disabled={
+                      updateSystemPromptMutation.isPending ||
+                      editedPrompt === DEFAULT_SYSTEM_PROMPT
+                    }
+                  >
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Reset to Default
+                  </Button>
+                  <Button
+                    onClick={() => updateSystemPromptMutation.mutate(editedPrompt)}
+                    disabled={
+                      updateSystemPromptMutation.isPending ||
+                      editedPrompt === (systemPrompt || "")
+                    }
+                    className="ml-auto"
+                  >
+                    {updateSystemPromptMutation.isPending ? "Saving..." : "Save System Prompt"}
+                  </Button>
+                </div>
               </div>
             </div>
           )}

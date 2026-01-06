@@ -35,3 +35,4 @@ export default async function CellPage({
   return <CellLandingPage cell={cell} />
 }
 
+

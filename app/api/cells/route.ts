@@ -55,6 +55,7 @@ export async function POST(request: Request) {
 
     // Validate webhook URL is set before purchasing a number (fail fast)
     const smsWebhookUrl = process.env.TWILIO_SMS_WEBHOOK_URL
+    const whatsappWebhookUrl = process.env.TWILIO_WHATSAPP_WEBHOOK_URL
     const statusCallbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL
 
     if (!smsWebhookUrl) {
@@ -145,7 +146,8 @@ export async function POST(request: Request) {
       updatedNumber = await configurePhoneNumberWebhooks(
         phoneNumberSid,
         smsWebhookUrl,
-        statusCallbackUrl
+        statusCallbackUrl,
+        whatsappWebhookUrl
       )
     } catch (error) {
       console.error('Error configuring webhook URLs:', error)
@@ -187,6 +189,7 @@ export async function POST(request: Request) {
       ...cell,
       webhook: {
         smsUrl: updatedNumber.smsUrl,
+        whatsappUrl: (updatedNumber as any).whatsappUrl || null,
         statusCallback: updatedNumber.statusCallback || null,
       }
     }, { status: 201 })

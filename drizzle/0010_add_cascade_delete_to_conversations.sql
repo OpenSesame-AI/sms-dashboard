@@ -22,3 +22,4 @@ FOREIGN KEY ("cell_id")
 REFERENCES "cells"("id") 
 ON DELETE CASCADE;
 
+
