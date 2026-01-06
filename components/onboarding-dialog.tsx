@@ -26,6 +26,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Cell, CellContext } from "@/lib/db/schema"
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/constants"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type OnboardingDialogProps = {
   open: boolean
@@ -382,6 +392,8 @@ function OnboardingStep2Context({ cellId }: { cellId: string }) {
   const [dragActive, setDragActive] = React.useState(false)
   const [editedPrompt, setEditedPrompt] = React.useState("")
   const [urlInput, setUrlInput] = React.useState("")
+  const [showSaveConfirm, setShowSaveConfirm] = React.useState(false)
+  const [showResetConfirm, setShowResetConfirm] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -645,7 +657,7 @@ function OnboardingStep2Context({ cellId }: { cellId: string }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setEditedPrompt(DEFAULT_SYSTEM_PROMPT)}
+                onClick={() => setShowResetConfirm(true)}
                 disabled={
                   updateSystemPromptMutation.isPending ||
                   editedPrompt === DEFAULT_SYSTEM_PROMPT
@@ -655,7 +667,7 @@ function OnboardingStep2Context({ cellId }: { cellId: string }) {
               </Button>
               <Button
                 size="sm"
-                onClick={() => updateSystemPromptMutation.mutate(editedPrompt)}
+                onClick={() => setShowSaveConfirm(true)}
                 disabled={
                   updateSystemPromptMutation.isPending ||
                   editedPrompt === (cellData?.systemPrompt || DEFAULT_SYSTEM_PROMPT)
@@ -811,6 +823,60 @@ function OnboardingStep2Context({ cellId }: { cellId: string }) {
           </div>
         )}
       </div>
+
+      {/* Save Confirmation Dialog */}
+      <AlertDialog open={showSaveConfirm} onOpenChange={setShowSaveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Save System Prompt</AlertDialogTitle>
+            <AlertDialogDescription>
+              Changing the system prompt will impact all existing conversations. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                size="sm"
+                onClick={() => {
+                  updateSystemPromptMutation.mutate(editedPrompt)
+                  setShowSaveConfirm(false)
+                }}
+                disabled={updateSystemPromptMutation.isPending}
+              >
+                {updateSystemPromptMutation.isPending ? "Saving..." : "Save"}
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reset Confirmation Dialog */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Reset to Default</AlertDialogTitle>
+            <AlertDialogDescription>
+              Changing the system prompt will impact all existing conversations. Are you sure you want to reset to the default prompt?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditedPrompt(DEFAULT_SYSTEM_PROMPT)
+                  setShowResetConfirm(false)
+                }}
+              >
+                Reset to Default
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

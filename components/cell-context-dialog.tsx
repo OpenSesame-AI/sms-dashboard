@@ -21,6 +21,16 @@ import { DEFAULT_SYSTEM_PROMPT, SYSTEM_PROMPT_TEMPLATES } from "@/lib/constants"
 import { TemplatesMode } from "@/components/system-prompt-templates"
 import { GuidedMode } from "@/components/system-prompt-guided"
 import { AdvancedMode } from "@/components/system-prompt-advanced"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type CellContextDialogProps = {
   cellId: string
@@ -46,6 +56,8 @@ export function CellContextDialog({
   const [dragActive, setDragActive] = React.useState(false)
   const [editedPrompt, setEditedPrompt] = React.useState(systemPrompt || "")
   const [urlInput, setUrlInput] = React.useState("")
+  const [showSaveConfirm, setShowSaveConfirm] = React.useState(false)
+  const [showResetConfirm, setShowResetConfirm] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -350,7 +362,7 @@ export function CellContextDialog({
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => setEditedPrompt(DEFAULT_SYSTEM_PROMPT)}
+                    onClick={() => setShowResetConfirm(true)}
                     disabled={
                       updateSystemPromptMutation.isPending ||
                       editedPrompt === DEFAULT_SYSTEM_PROMPT
@@ -360,7 +372,7 @@ export function CellContextDialog({
                     Reset to Default
                   </Button>
                   <Button
-                    onClick={() => updateSystemPromptMutation.mutate(editedPrompt)}
+                    onClick={() => setShowSaveConfirm(true)}
                     disabled={
                       updateSystemPromptMutation.isPending ||
                       editedPrompt === (systemPrompt || "")
@@ -530,6 +542,57 @@ export function CellContextDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      
+      {/* Save Confirmation Dialog */}
+      <AlertDialog open={showSaveConfirm} onOpenChange={setShowSaveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Save System Prompt</AlertDialogTitle>
+            <AlertDialogDescription>
+              Changing the system prompt will impact all existing conversations. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                onClick={() => {
+                  updateSystemPromptMutation.mutate(editedPrompt)
+                  setShowSaveConfirm(false)
+                }}
+                disabled={updateSystemPromptMutation.isPending}
+              >
+                {updateSystemPromptMutation.isPending ? "Saving..." : "Save"}
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reset Confirmation Dialog */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Reset to Default</AlertDialogTitle>
+            <AlertDialogDescription>
+              Changing the system prompt will impact all existing conversations. Are you sure you want to reset to the default prompt?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                onClick={() => {
+                  setEditedPrompt(DEFAULT_SYSTEM_PROMPT)
+                  setShowResetConfirm(false)
+                }}
+              >
+                Reset to Default
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   )
 }
