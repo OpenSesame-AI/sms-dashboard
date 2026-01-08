@@ -19,10 +19,14 @@
     "migrate:system-prompt": "tsx scripts/apply-system-prompt-column.ts",
     "migrate:user-id-to-cells": "tsx scripts/apply-user-id-to-cells.ts",
     "populate:cells-user-id": "tsx scripts/populate-cells-user-id.ts",
-    "migrate:organization-id": "tsx scripts/apply-organization-id-to-cells.ts"
+    "migrate:organization-id": "tsx scripts/apply-organization-id-to-cells.ts",
+    "migrate:integrations": "tsx scripts/apply-integrations-table.ts",
+    "migrate:salesforce-contacts": "tsx scripts/apply-salesforce-contacts-table.ts",
+    "migrate:column-visibility": "tsx scripts/apply-column-visibility-table.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",
+    "@composio/core": "latest",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",

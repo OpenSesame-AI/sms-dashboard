@@ -28,15 +28,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate phone numbers
-    if (!validatePhoneNumber(from_number)) {
+    // Validate phone numbers (use 'US' as default country for numbers without country code)
+    const defaultCountry = 'US'
+    if (!validatePhoneNumber(from_number, defaultCountry)) {
       return NextResponse.json(
         { error: `Invalid from_number: ${from_number}` },
         { status: 400 }
       )
     }
 
-    // Validate and normalize recipient phone numbers
+    // Validate and normalize recipient phone numbers (use 'US' as default country)
     const normalizedRecipients: string[] = []
     for (const recipient of to) {
       if (typeof recipient !== 'string' || !recipient.trim()) {
@@ -46,14 +47,14 @@ export async function POST(request: NextRequest) {
         )
       }
       
-      if (!validatePhoneNumber(recipient)) {
+      if (!validatePhoneNumber(recipient, defaultCountry)) {
         return NextResponse.json(
           { error: `Invalid recipient phone number: ${recipient}` },
           { status: 400 }
         )
       }
 
-      const normalized = normalizePhoneNumber(recipient)
+      const normalized = normalizePhoneNumber(recipient, defaultCountry)
       if (!normalized) {
         return NextResponse.json(
           { error: `Could not normalize phone number: ${recipient}` },
@@ -64,8 +65,8 @@ export async function POST(request: NextRequest) {
       normalizedRecipients.push(normalized)
     }
 
-    // Normalize from_number
-    const normalizedFromNumber = normalizePhoneNumber(from_number)
+    // Normalize from_number (use 'US' as default country)
+    const normalizedFromNumber = normalizePhoneNumber(from_number, defaultCountry)
     if (!normalizedFromNumber) {
       return NextResponse.json(
         { error: `Could not normalize from_number: ${from_number}` },

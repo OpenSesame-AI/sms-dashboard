@@ -30,3 +30,6 @@ CREATE INDEX IF NOT EXISTS idx_ai_alert_triggers_dismissed ON ai_alert_triggers(
 CREATE INDEX IF NOT EXISTS idx_ai_alert_triggers_message_id ON ai_alert_triggers(message_id);
 
 
+
+
+

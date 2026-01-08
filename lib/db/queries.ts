@@ -1,6 +1,7 @@
 import { db, postgresClient } from './index'
-import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, availablePhoneNumbers } from './schema'
+import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, columnVisibility, availablePhoneNumbers, integrations, salesforceContacts } from './schema'
 import { eq, sql, desc, asc, and, gte, or, like, isNull } from 'drizzle-orm'
+import { normalizePhoneNumber, getCellCountry } from '@/lib/utils'
 
 export type Contact = {
   id: string
@@ -13,6 +14,12 @@ export type Contact = {
   lastActivity: string | null
   lastMessageDirection: 'inbound' | 'outbound' | null
   lastSeenActivity: string | null
+  salesforceId?: string
+  firstName?: string
+  lastName?: string
+  email?: string
+  accountId?: string
+  accountName?: string
 }
 
 // Helper functions to format dates as strings
@@ -34,79 +41,123 @@ const formatDateTime = (date: Date | string | null | undefined): string | null =
 }
 
 export async function getContacts(cellId?: string): Promise<Contact[]> {
-  // Optimized single query using LEFT JOIN and GROUP BY to avoid N+1 pattern
-  // This reduces query count from N+1 to just 1, regardless of contact count
+  // Optimized query using window functions instead of correlated subqueries
+  // This is much faster than correlated subqueries which run for each row
+  
+  // Get cell country for normalization if cellId is provided
+  let cellCountry: string | null = null
+  if (cellId) {
+    const cell = await db
+      .select({ phoneNumber: cells.phoneNumber })
+      .from(cells)
+      .where(eq(cells.id, cellId))
+      .limit(1)
+    if (cell[0]?.phoneNumber) {
+      cellCountry = getCellCountry(cell[0].phoneNumber)
+    }
+  }
   
   // First, get all seen states for this cell
   const seenStates = await getAllContactSeenStates(cellId)
   const seenStateMap = new Map<string, string>()
   seenStates.forEach((state) => {
     if (state.lastSeenActivity) {
-      seenStateMap.set(state.phoneNumber, state.lastSeenActivity.toISOString())
+      // Normalize phone number for seen state lookup
+      const normalized = normalizePhoneNumber(state.phoneNumber, cellCountry || undefined) || state.phoneNumber
+      const existing = seenStateMap.get(normalized)
+      // Keep the most recent seen activity
+      if (!existing || new Date(state.lastSeenActivity) > new Date(existing)) {
+        seenStateMap.set(normalized, state.lastSeenActivity.toISOString())
+      }
     }
   })
   
-  // Use postgres client directly for raw SQL queries (same as scripts)
+  // Use postgres client directly for raw SQL queries with window functions
+  // This uses DISTINCT ON and window functions to get the latest message per phone number
+  // which is much faster than correlated subqueries
   const results = cellId
     ? await postgresClient`
+        WITH latest_messages AS (
+          SELECT DISTINCT ON (s.phone_number)
+            s.phone_number,
+            s.status as "lastStatus",
+            s.direction as "lastMessageDirection",
+            s.message_body as "lastMessage",
+            s.timestamp as "lastActivity"
+          FROM sms_conversations s
+          WHERE s.cell_id = ${cellId}
+          ORDER BY s.phone_number, s.timestamp DESC
+        ),
+        message_counts AS (
+          SELECT 
+            s.phone_number,
+            COUNT(*)::int as "numberOfMessages"
+          FROM sms_conversations s
+          WHERE s.cell_id = ${cellId}
+          GROUP BY s.phone_number
+        )
         SELECT 
           p.id,
           p.phone_number as "phoneNumber",
           p.user_id as "userId",
           p.created_at as "createdAt",
-          COUNT(s.id)::int as "numberOfMessages",
-          MAX(s.message_body) as "lastMessage",
-          MAX(s.timestamp) as "lastActivity",
-          (
-            SELECT s2.status
-            FROM sms_conversations s2
-            WHERE s2.phone_number = p.phone_number
-              AND s2.cell_id = ${cellId}
-            ORDER BY s2.timestamp DESC
-            LIMIT 1
-          ) as "lastStatus",
-          (
-            SELECT s3.direction
-            FROM sms_conversations s3
-            WHERE s3.phone_number = p.phone_number
-              AND s3.cell_id = ${cellId}
-            ORDER BY s3.timestamp DESC
-            LIMIT 1
-          ) as "lastMessageDirection"
+          COALESCE(mc."numberOfMessages", 0) as "numberOfMessages",
+          lm."lastMessage",
+          lm."lastActivity",
+          lm."lastStatus",
+          lm."lastMessageDirection",
+          sf."salesforce_id" as "salesforceId",
+          sf."first_name" as "firstName",
+          sf."last_name" as "lastName",
+          sf."email" as "email",
+          sf."account_id" as "accountId",
+          sf."account_name" as "accountName"
         FROM phone_user_mappings p
-        LEFT JOIN sms_conversations s ON s.phone_number = p.phone_number
-          AND s.cell_id = ${cellId}
+        LEFT JOIN latest_messages lm ON lm.phone_number = p.phone_number
+        LEFT JOIN message_counts mc ON mc.phone_number = p.phone_number
+        LEFT JOIN salesforce_contacts sf ON sf.phone_number = p.phone_number AND sf.cell_id = p.cell_id
         WHERE p.cell_id = ${cellId}
-        GROUP BY p.id, p.phone_number, p.user_id, p.created_at
-        ORDER BY MAX(s.timestamp) DESC NULLS LAST
+        ORDER BY lm."lastActivity" DESC NULLS LAST
       `
     : await postgresClient`
+        WITH latest_messages AS (
+          SELECT DISTINCT ON (s.phone_number)
+            s.phone_number,
+            s.status as "lastStatus",
+            s.direction as "lastMessageDirection",
+            s.message_body as "lastMessage",
+            s.timestamp as "lastActivity"
+          FROM sms_conversations s
+          ORDER BY s.phone_number, s.timestamp DESC
+        ),
+        message_counts AS (
+          SELECT 
+            s.phone_number,
+            COUNT(*)::int as "numberOfMessages"
+          FROM sms_conversations s
+          GROUP BY s.phone_number
+        )
         SELECT 
           p.id,
           p.phone_number as "phoneNumber",
           p.user_id as "userId",
           p.created_at as "createdAt",
-          COUNT(s.id)::int as "numberOfMessages",
-          MAX(s.message_body) as "lastMessage",
-          MAX(s.timestamp) as "lastActivity",
-          (
-            SELECT s2.status
-            FROM sms_conversations s2
-            WHERE s2.phone_number = p.phone_number
-            ORDER BY s2.timestamp DESC
-            LIMIT 1
-          ) as "lastStatus",
-          (
-            SELECT s3.direction
-            FROM sms_conversations s3
-            WHERE s3.phone_number = p.phone_number
-            ORDER BY s3.timestamp DESC
-            LIMIT 1
-          ) as "lastMessageDirection"
+          COALESCE(mc."numberOfMessages", 0) as "numberOfMessages",
+          lm."lastMessage",
+          lm."lastActivity",
+          lm."lastStatus",
+          lm."lastMessageDirection",
+          sf."salesforce_id" as "salesforceId",
+          sf."first_name" as "firstName",
+          sf."last_name" as "lastName",
+          sf."email" as "email",
+          sf."account_id" as "accountId",
+          sf."account_name" as "accountName"
         FROM phone_user_mappings p
-        LEFT JOIN sms_conversations s ON s.phone_number = p.phone_number
-        GROUP BY p.id, p.phone_number, p.user_id, p.created_at
-        ORDER BY MAX(s.timestamp) DESC NULLS LAST
+        LEFT JOIN latest_messages lm ON lm.phone_number = p.phone_number
+        LEFT JOIN message_counts mc ON mc.phone_number = p.phone_number
+        LEFT JOIN salesforce_contacts sf ON sf.phone_number = p.phone_number AND sf.cell_id = p.cell_id
+        ORDER BY lm."lastActivity" DESC NULLS LAST
       `
 
   // Ensure results is an array
@@ -115,16 +166,22 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
     return []
   }
 
-  const contacts: Contact[] = results.map((row: any) => {
+  // Group contacts by normalized phone number to merge duplicates
+  const contactsByNormalized = new Map<string, Contact>()
+  
+  for (const row of results) {
     try {
+      // Normalize phone number to merge duplicates
+      const normalizedPhone = normalizePhoneNumber(row.phoneNumber, cellCountry || undefined) || row.phoneNumber
+      const existing = contactsByNormalized.get(normalizedPhone)
+      
       const direction = row.lastMessageDirection?.toLowerCase()
-      const lastSeenActivityRaw = seenStateMap.get(row.phoneNumber) || null
-      // Store both raw timestamp (for API calls) and formatted string (for display/comparison)
-      // We'll use the formatted string for comparison since both lastActivity and lastSeenActivity are formatted
+      const lastSeenActivityRaw = seenStateMap.get(normalizedPhone) || null
       const lastSeenActivity = lastSeenActivityRaw ? formatDateTime(lastSeenActivityRaw) : null
-      return {
+      
+      const contact: Contact = {
         id: row.id,
-        phoneNumber: row.phoneNumber,
+        phoneNumber: normalizedPhone, // Use normalized phone number
         userId: row.userId,
         lastMessage: row.lastMessage || null,
         status: row.lastStatus || 'pending',
@@ -133,14 +190,43 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
         lastActivity: formatDateTime(row.lastActivity),
         lastMessageDirection: direction === 'inbound' || direction === 'outbound' ? direction : null,
         lastSeenActivity,
+        salesforceId: row.salesforceId || undefined,
+        firstName: row.firstName || undefined,
+        lastName: row.lastName || undefined,
+        email: row.email || undefined,
+        accountId: row.accountId || undefined,
+        accountName: row.accountName || undefined,
+      }
+      
+      if (existing) {
+        // Merge with existing contact - keep the most recent data
+        // Use the most recent activity
+        const existingActivity = existing.lastActivity ? new Date(existing.lastActivity) : null
+        const newActivity = contact.lastActivity ? new Date(contact.lastActivity) : null
+        if (newActivity && (!existingActivity || newActivity > existingActivity)) {
+          existing.lastActivity = contact.lastActivity
+          existing.lastMessage = contact.lastMessage
+          existing.status = contact.status
+          existing.lastMessageDirection = contact.lastMessageDirection
+        }
+        // Sum message counts (though they should be the same if normalized correctly)
+        existing.numberOfMessages = Math.max(existing.numberOfMessages, contact.numberOfMessages)
+        // Use earliest start date
+        const existingStarted = existing.started ? new Date(existing.started) : null
+        const newStarted = contact.started ? new Date(contact.started) : null
+        if (newStarted && (!existingStarted || newStarted < existingStarted)) {
+          existing.started = contact.started
+        }
+      } else {
+        contactsByNormalized.set(normalizedPhone, contact)
       }
     } catch (err) {
       console.error('[getContacts] Error mapping row:', err, row)
       throw err
     }
-  })
+  }
 
-  return contacts
+  return Array.from(contactsByNormalized.values())
 }
 
 export async function getContactById(id: string): Promise<Contact | null> {
@@ -1168,6 +1254,256 @@ export async function deleteColumnColor(columnId: string, cellId?: string) {
             eq(columnColors.columnId, columnId),
             isNull(columnColors.cellId)
           )
+    )
+}
+
+// Column Visibility queries
+export async function getColumnVisibility(cellId?: string): Promise<Record<string, boolean | undefined> | null> {
+  const result = await db
+    .select()
+    .from(columnVisibility)
+    .where(
+      cellId
+        ? eq(columnVisibility.cellId, cellId)
+        : isNull(columnVisibility.cellId)
+    )
+    .limit(1)
+  
+  if (result[0]?.visibilityState) {
+    try {
+      return JSON.parse(result[0].visibilityState) as Record<string, boolean | undefined>
+    } catch (error) {
+      console.error('Error parsing column visibility state:', error)
+      return null
+    }
+  }
+  
+  return null
+}
+
+export async function saveColumnVisibility(visibilityState: Record<string, boolean | undefined>, cellId?: string) {
+  const visibilityStateJson = JSON.stringify(visibilityState)
+  
+  // Try to find existing record
+  const existing = await db
+    .select()
+    .from(columnVisibility)
+    .where(
+      cellId
+        ? eq(columnVisibility.cellId, cellId)
+        : isNull(columnVisibility.cellId)
+    )
+    .limit(1)
+  
+  if (existing[0]) {
+    // Update existing record
+    const result = await db
+      .update(columnVisibility)
+      .set({
+        visibilityState: visibilityStateJson,
+        updatedAt: new Date(),
+      })
+      .where(eq(columnVisibility.id, existing[0].id))
+      .returning()
+    
+    return result[0] || null
+  } else {
+    // Insert new record
+    const result = await db
+      .insert(columnVisibility)
+      .values({
+        cellId: cellId || null,
+        visibilityState: visibilityStateJson,
+      })
+      .returning()
+    
+    return result[0] || null
+  }
+}
+
+// Integration queries
+export async function getIntegration(cellId: string, type: string) {
+  const result = await db
+    .select()
+    .from(integrations)
+    .where(
+      and(
+        eq(integrations.cellId, cellId),
+        eq(integrations.type, type)
+      )
+    )
+    .limit(1)
+  
+  return result[0] || null
+}
+
+export async function getIntegrationStatus(cellId: string, type: string) {
+  const integration = await getIntegration(cellId, type)
+  
+  if (!integration) {
+    return {
+      connected: false,
+      syncedContactsCount: 0,
+    }
+  }
+  
+  return {
+    connected: true,
+    connectedAt: integration.connectedAt?.toISOString(),
+    lastSyncedAt: integration.lastSyncedAt?.toISOString(),
+    syncedContactsCount: integration.syncedContactsCount || 0,
+  }
+}
+
+/**
+ * Create integration (legacy - for token-based integrations)
+ * @deprecated Use createIntegrationWithConnectionId for Composio integrations
+ */
+export async function createIntegration(
+  cellId: string,
+  type: string,
+  accessToken: string,
+  refreshToken: string,
+  instanceUrl: string,
+  metadata?: Record<string, any>
+) {
+  const result = await db
+    .insert(integrations)
+    .values({
+      cellId,
+      type,
+      accessToken,
+      refreshToken,
+      instanceUrl,
+      metadata: metadata ? JSON.stringify(metadata) : null,
+      connectedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning()
+  
+  return result[0] || null
+}
+
+/**
+ * Create integration with Composio connection ID
+ * @param cellId - Cell ID
+ * @param type - Integration type (e.g., 'salesforce')
+ * @param connectionId - Composio connection ID
+ * @param metadata - Additional metadata (optional)
+ */
+export async function createIntegrationWithConnectionId(
+  cellId: string,
+  type: string,
+  connectionId: string,
+  metadata?: Record<string, any>
+) {
+  const integrationMetadata = {
+    connectionId,
+    ...metadata,
+  }
+
+  const result = await db
+    .insert(integrations)
+    .values({
+      cellId,
+      type,
+      accessToken: null, // Not used for Composio
+      refreshToken: null, // Not used for Composio
+      instanceUrl: null, // Not used for Composio
+      metadata: JSON.stringify(integrationMetadata),
+      connectedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning()
+  
+  return result[0] || null
+}
+
+/**
+ * Get connection ID from integration metadata
+ * @param integration - Integration record
+ * @returns Connection ID or null
+ */
+export function getConnectionIdFromIntegration(integration: { metadata: string | null }): string | null {
+  if (!integration.metadata) {
+    return null
+  }
+
+  try {
+    const metadata = JSON.parse(integration.metadata)
+    return metadata.connectionId || null
+  } catch {
+    return null
+  }
+}
+
+export async function updateIntegration(
+  id: string,
+  updates: {
+    accessToken?: string | null
+    refreshToken?: string | null
+    instanceUrl?: string | null
+    lastSyncedAt?: Date
+    syncedContactsCount?: number
+    metadata?: Record<string, any>
+    connectionId?: string // For Composio integrations
+  }
+) {
+  const updateData: any = {
+    updatedAt: new Date(),
+  }
+  
+  if (updates.accessToken !== undefined) updateData.accessToken = updates.accessToken
+  if (updates.refreshToken !== undefined) updateData.refreshToken = updates.refreshToken
+  if (updates.instanceUrl !== undefined) updateData.instanceUrl = updates.instanceUrl
+  if (updates.lastSyncedAt !== undefined) updateData.lastSyncedAt = updates.lastSyncedAt
+  if (updates.syncedContactsCount !== undefined) updateData.syncedContactsCount = updates.syncedContactsCount
+  
+  // Handle metadata updates
+  if (updates.metadata !== undefined || updates.connectionId !== undefined) {
+    // Get existing integration to merge metadata
+    const existing = await db
+      .select()
+      .from(integrations)
+      .where(eq(integrations.id, id))
+      .limit(1)
+    
+    let existingMetadata: Record<string, any> = {}
+    if (existing[0]?.metadata) {
+      try {
+        existingMetadata = JSON.parse(existing[0].metadata)
+      } catch {
+        // Invalid JSON, start fresh
+      }
+    }
+    
+    // Merge metadata
+    const newMetadata = {
+      ...existingMetadata,
+      ...(updates.metadata || {}),
+      ...(updates.connectionId ? { connectionId: updates.connectionId } : {}),
+    }
+    
+    updateData.metadata = JSON.stringify(newMetadata)
+  }
+  
+  const result = await db
+    .update(integrations)
+    .set(updateData)
+    .where(eq(integrations.id, id))
+    .returning()
+  
+  return result[0] || null
+}
+
+export async function deleteIntegration(cellId: string, type: string) {
+  await db
+    .delete(integrations)
+    .where(
+      and(
+        eq(integrations.cellId, cellId),
+        eq(integrations.type, type)
+      )
     )
 }
 

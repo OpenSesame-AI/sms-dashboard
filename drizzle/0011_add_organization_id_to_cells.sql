@@ -3,3 +3,6 @@
 ALTER TABLE "cells" ADD COLUMN IF NOT EXISTS "organization_id" varchar;
 
 
+
+
+

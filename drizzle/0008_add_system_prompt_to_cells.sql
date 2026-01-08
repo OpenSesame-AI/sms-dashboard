@@ -2,3 +2,6 @@
 ALTER TABLE "cells" ADD COLUMN IF NOT EXISTS "system_prompt" text;
 
 
+
+
+

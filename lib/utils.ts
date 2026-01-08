@@ -8,15 +8,30 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatPhoneNumber(
   phoneNumber: string,
-  format: 'national' | 'international' = 'national'
+  format: 'national' | 'international' = 'national',
+  defaultCountry?: string
 ): string {
+  // First try parsing without default country (for numbers with country code)
+  let parsed = null
   try {
-    const parsed = parsePhoneNumber(phoneNumber)
-    if (!parsed) return phoneNumber
-    return format === 'national' ? parsed.formatNational() : parsed.formatInternational()
+    parsed = parsePhoneNumber(phoneNumber)
   } catch {
-    return phoneNumber
+    // If parsing without default fails, we'll try with default country below
+    parsed = null
   }
+  
+  // If that fails and we have a default country, try with default country
+  if (!parsed && defaultCountry) {
+    try {
+      parsed = parsePhoneNumber(phoneNumber, defaultCountry as any)
+    } catch {
+      // If parsing with default country also fails, return original
+      return phoneNumber
+    }
+  }
+  
+  if (!parsed) return phoneNumber
+  return format === 'national' ? parsed.formatNational() : parsed.formatInternational()
 }
 
 export function validatePhoneNumber(phoneNumber: string, defaultCountry?: string): boolean {
@@ -32,13 +47,37 @@ export function normalizePhoneNumber(phoneNumber: string, defaultCountry?: strin
   }
 }
 
-export function getCountryCode(phoneNumber: string): string | null {
+export function getCountryCode(phoneNumber: string, defaultCountry?: string): string | null {
+  // First try parsing without default country (for numbers with country code)
+  let parsed = null
   try {
-    const parsed = parsePhoneNumber(phoneNumber)
-    return parsed?.country ?? null
+    parsed = parsePhoneNumber(phoneNumber)
   } catch {
-    return null
+    // If parsing without default fails, we'll try with default country below
+    parsed = null
   }
+  
+  // If that fails and we have a default country, try with default country
+  if (!parsed && defaultCountry) {
+    try {
+      parsed = parsePhoneNumber(phoneNumber, defaultCountry as any)
+    } catch {
+      // If parsing with default country also fails, return null
+      return null
+    }
+  }
+  
+  return parsed?.country ?? null
+}
+
+/**
+ * Get country code from a cell's phone number
+ * Cells have phone numbers in E.164 format, so we can extract the country
+ * @param cellPhoneNumber - Cell's phone number (should be in E.164 format)
+ * @returns ISO country code (e.g., 'US', 'CA') or null if unable to parse
+ */
+export function getCellCountry(cellPhoneNumber: string): string | null {
+  return getCountryCode(cellPhoneNumber)
 }
 
 /**

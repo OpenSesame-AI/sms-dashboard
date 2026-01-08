@@ -6,6 +6,7 @@ import { HeaderActions } from "@/components/header-actions"
 import { TableSelector } from "@/components/table-selector"
 import { AnalyticsButton } from "@/components/analytics-button"
 import { ContextButton } from "@/components/context-button"
+import { IntegrationsButton } from "@/components/integrations-button"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import { UserButton } from "@clerk/nextjs"
 import { WebViewWarning } from "@/components/webview-warning"
@@ -52,6 +53,7 @@ export function PublicRouteWrapper({ children }: { children: React.ReactNode }) 
             <TableSelector />
             <AnalyticsButton />
             <ContextButton />
+            <IntegrationsButton />
           </div>
           <div className="flex items-center gap-2 relative z-[100]">
             <HeaderActions />

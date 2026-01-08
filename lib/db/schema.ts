@@ -107,11 +107,54 @@ export const columnColors = pgTable('column_colors', {
   uniqueColumnCell: unique().on(table.columnId, table.cellId),
 }))
 
+export const columnVisibility = pgTable('column_visibility', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  visibilityState: text('visibility_state').notNull(), // JSON stored as text: Record<string, boolean | undefined>
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniqueCell: unique().on(table.cellId),
+}))
+
 export const availablePhoneNumbers = pgTable('available_phone_numbers', {
   id: uuid('id').primaryKey().defaultRandom(),
   phoneNumber: varchar('phone_number').notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 })
+
+export const integrations = pgTable('integrations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cellId: uuid('cell_id').notNull().references(() => cells.id, { onDelete: 'cascade' }),
+  type: varchar('type').notNull(), // e.g., 'salesforce'
+  accessToken: text('access_token'), // encrypted (deprecated - use metadata.connectionId for Composio)
+  refreshToken: text('refresh_token'), // encrypted (deprecated - use metadata.connectionId for Composio)
+  instanceUrl: varchar('instance_url'), // deprecated - use metadata.connectionId for Composio
+  connectedAt: timestamp('connected_at', { withTimezone: true }).defaultNow(),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+  syncedContactsCount: integer('synced_contacts_count').default(0),
+  metadata: text('metadata'), // JSON stored as text. For Composio: { connectionId: string }
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniqueCellType: unique().on(table.cellId, table.type),
+}))
+
+export const salesforceContacts = pgTable('salesforce_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  salesforceId: varchar('salesforce_id').notNull(),
+  firstName: varchar('first_name'),
+  lastName: varchar('last_name'),
+  email: varchar('email'),
+  accountId: varchar('account_id'),
+  accountName: varchar('account_name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
 
 export type PhoneUserMapping = typeof phoneUserMappings.$inferSelect
 export type NewPhoneUserMapping = typeof phoneUserMappings.$inferInsert
@@ -133,6 +176,12 @@ export type AiAlertTrigger = typeof aiAlertTriggers.$inferSelect
 export type NewAiAlertTrigger = typeof aiAlertTriggers.$inferInsert
 export type ColumnColor = typeof columnColors.$inferSelect
 export type NewColumnColor = typeof columnColors.$inferInsert
+export type ColumnVisibility = typeof columnVisibility.$inferSelect
+export type NewColumnVisibility = typeof columnVisibility.$inferInsert
 export type AvailablePhoneNumber = typeof availablePhoneNumbers.$inferSelect
 export type NewAvailablePhoneNumber = typeof availablePhoneNumbers.$inferInsert
+export type Integration = typeof integrations.$inferSelect
+export type NewIntegration = typeof integrations.$inferInsert
+export type SalesforceContact = typeof salesforceContacts.$inferSelect
+export type NewSalesforceContact = typeof salesforceContacts.$inferInsert
 

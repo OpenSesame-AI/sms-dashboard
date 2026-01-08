@@ -23,3 +23,6 @@ REFERENCES "cells"("id")
 ON DELETE CASCADE;
 
 
+
+
+

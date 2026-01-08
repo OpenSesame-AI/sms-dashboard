@@ -6,3 +6,6 @@ ALTER TABLE "sms_conversations" ADD COLUMN IF NOT EXISTS "channel" varchar NOT N
 -- Update all existing records to have channel = 'sms' (explicitly set for safety)
 UPDATE "sms_conversations" SET "channel" = 'sms' WHERE "channel" IS NULL;
 
+
+
+

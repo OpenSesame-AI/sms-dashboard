@@ -7,10 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Contact } from "@/lib/data"
-import { formatPhoneNumber, getCountryCode } from "@/lib/utils"
+import { formatPhoneNumber, getCountryCode, getCellCountry } from "@/lib/utils"
 import ReactCountryFlag from "react-country-flag"
 
-export const columns: ColumnDef<Contact>[] = [
+export function createColumns(defaultCountry?: string | null): ColumnDef<Contact>[] {
+  // Store defaultCountry in a variable that will be captured in the closure
+  const country = defaultCountry || undefined
+  return [
   {
     id: "select",
     enableSorting: false,
@@ -98,8 +101,12 @@ export const columns: ColumnDef<Contact>[] = [
       const contactAlerts = alertTriggers?.get(phoneNumber) || []
       const hasAlerts = contactAlerts.length > 0
       
-      const formattedPhoneNumber = formatPhoneNumber(phoneNumber)
-      const countryCode = getCountryCode(phoneNumber)
+      // Debug: log to see what values are being used
+      if (process.env.NODE_ENV === 'development' && phoneNumber === '5149791879') {
+        console.log('[Columns] Formatting phone:', phoneNumber, 'with country:', country)
+      }
+      const formattedPhoneNumber = formatPhoneNumber(phoneNumber, 'national', country)
+      const countryCode = getCountryCode(phoneNumber, country)
       return (
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -148,19 +155,6 @@ export const columns: ColumnDef<Contact>[] = [
     },
   },
   {
-    accessorKey: "userId",
-    enableSorting: false,
-    header: () => "User ID",
-    cell: ({ row }) => {
-      const value = row.getValue("userId") as string
-      return (
-        <div className="truncate" title={value || ""}>
-          {value || "-"}
-        </div>
-      )
-    },
-  },
-  {
     accessorKey: "lastMessage",
     enableSorting: false,
     header: () => "Last Message",
@@ -187,8 +181,30 @@ export const columns: ColumnDef<Contact>[] = [
     accessorKey: "status",
     enableSorting: false,
     header: () => "Status",
-    cell: ({ row }) => {
+    cell: ({ row, table }) => {
       const status = row.getValue("status") as string
+      const numberOfMessages = row.getValue("numberOfMessages") as number
+      const phoneNumber = row.getValue("phoneNumber") as string
+      const onOpenBroadcast = (table.options.meta as any)?.onOpenBroadcast
+      
+      // If there are no messages (no actual status), show a button to open broadcast dialog
+      // numberOfMessages === 0 means no messages exist, so there's no real status
+      if (numberOfMessages === 0) {
+        return (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenBroadcast?.(phoneNumber)
+            }}
+            className="h-6 text-xs"
+          >
+            Send Message
+          </Button>
+        )
+      }
+      
       const variant =
         status === "active"
           ? "default"
@@ -236,5 +252,9 @@ export const columns: ColumnDef<Contact>[] = [
       )
     },
   },
-]
+  ]
+}
+
+// Export default columns for backward compatibility (without default country)
+export const columns = createColumns()
 

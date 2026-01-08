@@ -29,10 +29,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DataTablePagination } from "@/components/data-table-pagination"
+import { DataTableViewOptions } from "@/components/data-table-view-options"
 import { Contact, ConversationMessage } from "@/lib/data"
 import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel, Bell, AlertTriangle, WandSparkles, Settings, Eye, EyeOff, Copy, ArrowLeft, ArrowRight, Pin, Info, Palette, Type, Calendar, Hash, Tag } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, getCellCountry } from "@/lib/utils"
 import { useCell } from "@/components/cell-context"
+import { createColumns } from "./columns"
+import { createSalesforceColumns } from "./salesforce-columns"
+import Image from "next/image"
 import {
   DndContext,
   closestCenter,
@@ -338,6 +342,79 @@ export function ContactsTable<TData, TValue>({
       loadColumnColors()
     }
   }, [selectedCell?.id])
+
+  // Load column visibility from database
+  React.useEffect(() => {
+    const loadColumnVisibility = async () => {
+      try {
+        const cellId = selectedCell?.id
+        const url = cellId 
+          ? `/api/column-visibility?cellId=${encodeURIComponent(cellId)}`
+          : '/api/column-visibility'
+        
+        const response = await fetch(url)
+        if (response.ok) {
+          const visibility = await response.json()
+          console.log('Loaded column visibility:', visibility)
+          if (visibility && Object.keys(visibility).length > 0) {
+            setColumnVisibility(visibility)
+          }
+        } else {
+          console.error('Failed to load column visibility:', response.status, response.statusText)
+        }
+      } catch (error) {
+        console.error('Error loading column visibility:', error)
+      }
+    }
+    
+    if (selectedCell) {
+      loadColumnVisibility()
+    } else {
+      // Load global visibility when no cell is selected
+      loadColumnVisibility()
+    }
+  }, [selectedCell?.id])
+
+  // Save column visibility to database (debounced)
+  const saveColumnVisibilityDebounced = React.useRef<NodeJS.Timeout | null>(null)
+  const saveColumnVisibilityToDb = React.useCallback(async (visibility: VisibilityState) => {
+    // Clear existing timeout
+    if (saveColumnVisibilityDebounced.current) {
+      clearTimeout(saveColumnVisibilityDebounced.current)
+    }
+    
+    // Debounce saves to avoid too many database calls
+    saveColumnVisibilityDebounced.current = setTimeout(async () => {
+      try {
+        const cellId = selectedCell?.id
+        const response = await fetch('/api/column-visibility', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            visibilityState: visibility,
+            cellId,
+          }),
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to save column visibility:', response.status, response.statusText)
+        }
+      } catch (error) {
+        console.error('Error saving column visibility:', error)
+      }
+    }, 500) // 500ms debounce
+  }, [selectedCell?.id])
+
+  // Wrapper for setColumnVisibility that also saves to database
+  const setColumnVisibilityWithSave = React.useCallback((updater: VisibilityState | ((prev: VisibilityState) => VisibilityState)) => {
+    setColumnVisibility((prev) => {
+      const newVisibility = typeof updater === 'function' ? updater(prev) : updater
+      saveColumnVisibilityToDb(newVisibility)
+      return newVisibility
+    })
+  }, [saveColumnVisibilityToDb])
   
   // Use the state data
   const data = contactsData
@@ -356,8 +433,29 @@ export function ContactsTable<TData, TValue>({
   // Loading state for analysis: map of columnKey -> boolean
   const [analysisLoading, setAnalysisLoading] = React.useState<Map<string, boolean>>(new Map())
   
+  // Get cell's country for phone number formatting
+  const cellCountry = React.useMemo(() => {
+    if (!selectedCell?.phoneNumber) return null
+    const country = getCellCountry(selectedCell.phoneNumber)
+    // Debug: log to see if country is being retrieved
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[ContactsTable] Cell phone:', selectedCell.phoneNumber, 'Country:', country)
+    }
+    return country
+  }, [selectedCell?.phoneNumber])
+
   // Store order of initial columns for reordering (AI columns always at end)
-  const [initialColumnOrder, setInitialColumnOrder] = React.useState<ColumnDef<TData, TValue>[]>(initialColumns)
+  // Recreate base columns with cell's country when cell changes
+  const baseColumns = React.useMemo(() => {
+    return createColumns(cellCountry || undefined)
+  }, [cellCountry])
+  
+  const [initialColumnOrder, setInitialColumnOrder] = React.useState<ColumnDef<TData, TValue>[]>(baseColumns as ColumnDef<TData, TValue>[])
+  
+  // Update initialColumnOrder when baseColumns change (cell country changes)
+  React.useEffect(() => {
+    setInitialColumnOrder(baseColumns as ColumnDef<TData, TValue>[])
+  }, [baseColumns])
   
   // Alert state (needed before columns useMemo)
   const [alerts, setAlerts] = React.useState<Array<{
@@ -389,6 +487,16 @@ export function ContactsTable<TData, TValue>({
   const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({})
   const [columnColors, setColumnColors] = React.useState<Record<string, string>>({})
   const [pinnedColumns, setPinnedColumns] = React.useState<Set<string>>(new Set())
+  
+  // Filter state (moved before useMemo that uses it)
+  type Filter = {
+    id: string
+    column: string
+    condition: string
+    value: string
+  }
+  const [filters, setFilters] = React.useState<Filter[]>([])
+  const [filterPopoverOpen, setFilterPopoverOpen] = React.useState(false)
   
   // Cell selection state for Excel-like selection
   interface CellSelection {
@@ -825,21 +933,21 @@ export function ContactsTable<TData, TValue>({
             </DropdownMenuItem>
           )}
           
-          {/* {onHide && (
+          {onHide && (
             <DropdownMenuItem onClick={onHide}>
               {isHidden ? (
                 <>
-                  <EyeOff className="h-4 w-4 mr-2" />
+                  <Eye className="h-4 w-4 mr-2" />
                   Show column
                 </>
               ) : (
                 <>
-                  <Eye className="h-4 w-4 mr-2" />
+                  <EyeOff className="h-4 w-4 mr-2" />
                   Hide column
                 </>
               )}
             </DropdownMenuItem>
-          )} */}
+          )}
           
           {onDelete && (
             <>
@@ -857,6 +965,80 @@ export function ContactsTable<TData, TValue>({
 
   // Create columns with AI columns and Alert columns dynamically
   const columns = React.useMemo<ColumnDef<TData, TValue>[]>(() => {
+    // Check if any contacts have Salesforce data (check for any Salesforce field)
+    const hasSalesforceData = contactsData.some((contact) => 
+      contact.salesforceId || contact.firstName || contact.lastName || contact.email || contact.accountName
+    )
+    
+    // Create Salesforce columns if data exists
+    const salesforceColumnDefs: ColumnDef<TData, TValue>[] = hasSalesforceData
+      ? (createSalesforceColumns().map((col) => {
+          const accessorKey = 'accessorKey' in col ? col.accessorKey : undefined
+          const columnId = col.id || String(accessorKey || "")
+          const columnName = typeof col.header === 'string'
+            ? col.header
+            : String(accessorKey || columnId).replace(/([A-Z])/g, ' $1').replace(/^./, (str: string) => str.toUpperCase())
+          
+          return {
+            ...col,
+            id: columnId,
+            header: ({ column }) => (
+              <ColumnHeaderMenu
+                columnId={column.id}
+                columnName={columnName}
+                columnType="regular"
+                columnKey={String(accessorKey || "")}
+                onHide={() => {
+                  setColumnVisibilityWithSave((prev) => ({
+                    ...prev,
+                    [column.id]: !prev[column.id],
+                  }))
+                }}
+                onSortAsc={() => {
+                  column.toggleSorting(false)
+                }}
+                onSortDesc={() => {
+                  column.toggleSorting(true)
+                }}
+                onFilter={(condition) => {
+                  const newFilterId = Date.now().toString()
+                  const columnKey = String(accessorKey || "")
+                  setFilters((prev) => [...prev, {
+                    id: newFilterId,
+                    column: columnKey,
+                    condition: condition || getDefaultFilterCondition(columnKey),
+                    value: "",
+                  }])
+                  setFilterPopoverOpen(true)
+                }}
+                onPin={() => {
+                  setPinnedColumns((prev) => {
+                    const newSet = new Set(prev)
+                    if (newSet.has(column.id)) {
+                      newSet.delete(column.id)
+                    } else {
+                      newSet.add(column.id)
+                    }
+                    return newSet
+                  })
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <Image
+                    src="/Salesforce_idN3OdcTG__1.png"
+                    alt="Salesforce"
+                    width={12}
+                    height={12}
+                    className="h-3 w-3"
+                  />
+                  {typeof col.header === 'function' ? col.header({ column } as any) : col.header}
+                </div>
+              </ColumnHeaderMenu>
+            ),
+          }
+        }) as ColumnDef<TData, TValue>[])
+      : []
+    
     const aiColumnDefs: ColumnDef<TData, TValue>[] = Array.from(aiColumns.entries()).map(([columnKey, columnDef]) => ({
       accessorKey: columnKey,
       header: ({ column }) => (
@@ -879,7 +1061,7 @@ export function ContactsTable<TData, TValue>({
           }}
           onDelete={() => handleDeleteColumn(columnKey)}
           onHide={() => {
-            setColumnVisibility((prev) => ({
+            setColumnVisibilityWithSave((prev) => ({
               ...prev,
               [column.id]: !prev[column.id],
             }))
@@ -1095,8 +1277,10 @@ export function ContactsTable<TData, TValue>({
       }
     })
     
-    return [...transformedRegularColumns, ...aiColumnDefs, ...alertColumnDefs]
-  }, [initialColumnOrder, aiColumns, analysisResults, analysisLoading, alerts, alertTriggers, ColumnHeaderMenu, setColumnVisibility])
+    return [...transformedRegularColumns, ...salesforceColumnDefs, ...aiColumnDefs, ...alertColumnDefs]
+  }, [initialColumnOrder, baseColumns, contactsData, aiColumns, analysisResults, analysisLoading, alerts, alertTriggers, ColumnHeaderMenu, setColumnVisibility, setFilters, setFilterPopoverOpen, setPinnedColumns])
+  
+  
   const [isAddColumnDialogOpen, setIsAddColumnDialogOpen] = React.useState(false)
   const [newColumnName, setNewColumnName] = React.useState("")
   const [aiDescription, setAiDescription] = React.useState("")
@@ -1133,7 +1317,6 @@ export function ContactsTable<TData, TValue>({
   const [phoneSearch, setPhoneSearch] = React.useState("")
   
   // Popover state
-  const [filterPopoverOpen, setFilterPopoverOpen] = React.useState(false)
   const [sortPopoverOpen, setSortPopoverOpen] = React.useState(false)
   
   // Alert management dialog state
@@ -1151,14 +1334,6 @@ export function ContactsTable<TData, TValue>({
   const [editAlertEnabled, setEditAlertEnabled] = React.useState(true)
   
   // Filter state - array of filters
-  type Filter = {
-    id: string
-    column: string
-    condition: string
-    value: string
-  }
-  const [filters, setFilters] = React.useState<Filter[]>([])
-
   // Track horizontal scroll state for shadow effect
   const [isScrolled, setIsScrolled] = React.useState(false)
   const tableContainerRef = React.useRef<HTMLDivElement>(null)
@@ -1822,7 +1997,7 @@ export function ContactsTable<TData, TValue>({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    onColumnVisibilityChange: setColumnVisibility,
+      onColumnVisibilityChange: setColumnVisibilityWithSave,
     onRowSelectionChange: setRowSelection,
     onColumnSizingChange: setColumnSizing,
     enableColumnResizing: true,
@@ -1838,6 +2013,16 @@ export function ContactsTable<TData, TValue>({
         unreadPhoneNumbers: unreadPhoneNumbers,
         alertTriggers: alertTriggers,
         onDismissAlerts: handleDismissAlerts,
+        onOpenBroadcast: (phoneNumber: string) => {
+          // Select the row with this phone number and open broadcast dialog
+          const row = table.getRowModel().rows.find(
+            (r) => (r.original as Contact).phoneNumber === phoneNumber
+          )
+          if (row) {
+            setRowSelection({ [row.id]: true })
+            setIsBroadcastDialogOpen(true)
+          }
+        },
       },
     state: {
       sorting,
@@ -2401,6 +2586,7 @@ export function ContactsTable<TData, TValue>({
           )}
         </div>
         <div className="flex items-center gap-2">
+          <DataTableViewOptions table={table} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">

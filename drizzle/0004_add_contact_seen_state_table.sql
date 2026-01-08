@@ -13,3 +13,6 @@ CREATE TABLE IF NOT EXISTS contact_seen_state (
 CREATE INDEX IF NOT EXISTS idx_contact_seen_state_phone_cell ON contact_seen_state(phone_number, cell_id);
 
 
+
+
+
