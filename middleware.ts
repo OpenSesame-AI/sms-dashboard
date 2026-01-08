@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 const isPublicRoute = createRouteMatcher([
   "/c/:path*",
+  "/api/v1/:path*", // Allow API key authentication for v1 API routes
 ]);
 
 /**

@@ -22,7 +22,8 @@
     "migrate:organization-id": "tsx scripts/apply-organization-id-to-cells.ts",
     "migrate:integrations": "tsx scripts/apply-integrations-table.ts",
     "migrate:salesforce-contacts": "tsx scripts/apply-salesforce-contacts-table.ts",
-    "migrate:column-visibility": "tsx scripts/apply-column-visibility-table.ts"
+    "migrate:column-visibility": "tsx scripts/apply-column-visibility-table.ts",
+    "migrate:api-keys": "tsx scripts/apply-api-keys-table.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",

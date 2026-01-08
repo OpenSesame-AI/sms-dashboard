@@ -156,6 +156,16 @@ export const salesforceContacts = pgTable('salesforce_contacts', {
   uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
 }))
 
+export const apiKeys = pgTable('api_keys', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cellId: uuid('cell_id').notNull().references(() => cells.id, { onDelete: 'cascade' }),
+  keyHash: text('key_hash').notNull(),
+  name: varchar('name'),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  createdBy: varchar('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+})
+
 export type PhoneUserMapping = typeof phoneUserMappings.$inferSelect
 export type NewPhoneUserMapping = typeof phoneUserMappings.$inferInsert
 export type SmsConversation = typeof smsConversations.$inferSelect
@@ -184,4 +194,6 @@ export type Integration = typeof integrations.$inferSelect
 export type NewIntegration = typeof integrations.$inferInsert
 export type SalesforceContact = typeof salesforceContacts.$inferSelect
 export type NewSalesforceContact = typeof salesforceContacts.$inferInsert
+export type ApiKey = typeof apiKeys.$inferSelect
+export type NewApiKey = typeof apiKeys.$inferInsert
 

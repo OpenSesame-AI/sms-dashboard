@@ -1,7 +1,8 @@
 import { db, postgresClient } from './index'
-import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, columnVisibility, availablePhoneNumbers, integrations, salesforceContacts } from './schema'
+import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, columnVisibility, availablePhoneNumbers, integrations, salesforceContacts, apiKeys } from './schema'
 import { eq, sql, desc, asc, and, gte, or, like, isNull } from 'drizzle-orm'
 import { normalizePhoneNumber, getCellCountry } from '@/lib/utils'
+import { randomBytes, pbkdf2Sync, timingSafeEqual } from 'crypto'
 
 export type Contact = {
   id: string
@@ -1505,5 +1506,183 @@ export async function deleteIntegration(cellId: string, type: string) {
         eq(integrations.type, type)
       )
     )
+}
+
+// API Key functions
+const API_KEY_PREFIX = 'sk_live_'
+const API_KEY_LENGTH = 32 // bytes of random data
+const HASH_ITERATIONS = 100000
+const HASH_KEY_LENGTH = 64
+
+/**
+ * Generate a new API key with prefix
+ */
+function generateApiKey(): string {
+  const randomPart = randomBytes(API_KEY_LENGTH).toString('base64url')
+  return `${API_KEY_PREFIX}${randomPart}`
+}
+
+/**
+ * Hash an API key using PBKDF2
+ */
+function hashApiKey(key: string): string {
+  // Use a fixed salt derived from the key prefix for consistency
+  // In production, you might want to store salt separately per key
+  const salt = Buffer.from('sms-dashboard-api-key-salt', 'utf-8')
+  const hash = pbkdf2Sync(key, salt, HASH_ITERATIONS, HASH_KEY_LENGTH, 'sha256')
+  return hash.toString('base64')
+}
+
+/**
+ * Verify an API key against a hash
+ */
+function verifyApiKey(key: string, hash: string): boolean {
+  try {
+    const keyHash = hashApiKey(key)
+    // Use timing-safe comparison to prevent timing attacks
+    return timingSafeEqual(Buffer.from(keyHash), Buffer.from(hash))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Create a new API key for a cell
+ * Returns the plain key (only shown once) and the database record
+ */
+export async function createApiKey(cellId: string, name: string | null, createdBy: string): Promise<{ id: string; key: string; name: string | null; createdAt: Date }> {
+  const plainKey = generateApiKey()
+  const keyHash = hashApiKey(plainKey)
+  
+  const result = await db
+    .insert(apiKeys)
+    .values({
+      cellId,
+      keyHash,
+      name: name || null,
+      createdBy,
+    })
+    .returning()
+  
+  if (!result[0]) {
+    throw new Error('Failed to create API key')
+  }
+  
+  return {
+    id: result[0].id,
+    key: plainKey,
+    name: result[0].name,
+    createdAt: result[0].createdAt || new Date(),
+  }
+}
+
+/**
+ * Get API key by plain key (for authentication)
+ * Returns the API key record with cell information if valid
+ */
+export async function getApiKeyByKey(apiKey: string): Promise<{ id: string; cellId: string; name: string | null; lastUsedAt: Date | null } | null> {
+  // Get all API keys (we need to verify against each hash)
+  // In production with many keys, you might want to optimize this with a lookup table
+  const allKeys = await db
+    .select({
+      id: apiKeys.id,
+      cellId: apiKeys.cellId,
+      keyHash: apiKeys.keyHash,
+      name: apiKeys.name,
+      lastUsedAt: apiKeys.lastUsedAt,
+    })
+    .from(apiKeys)
+  
+  // Find matching key by verifying hash
+  for (const keyRecord of allKeys) {
+    if (verifyApiKey(apiKey, keyRecord.keyHash)) {
+      return {
+        id: keyRecord.id,
+        cellId: keyRecord.cellId,
+        name: keyRecord.name,
+        lastUsedAt: keyRecord.lastUsedAt,
+      }
+    }
+  }
+  
+  return null
+}
+
+/**
+ * Get an API key by ID (without key value)
+ */
+export async function getApiKeyById(keyId: string): Promise<{ id: string; cellId: string; name: string | null; lastUsedAt: Date | null; createdAt: Date; createdBy: string } | null> {
+  const result = await db
+    .select({
+      id: apiKeys.id,
+      cellId: apiKeys.cellId,
+      name: apiKeys.name,
+      lastUsedAt: apiKeys.lastUsedAt,
+      createdAt: apiKeys.createdAt,
+      createdBy: apiKeys.createdBy,
+    })
+    .from(apiKeys)
+    .where(eq(apiKeys.id, keyId))
+    .limit(1)
+  
+  if (!result[0]) {
+    return null
+  }
+  
+  return {
+    ...result[0],
+    createdAt: result[0].createdAt || new Date(),
+  }
+}
+
+/**
+ * Get all API keys for a cell (without key values)
+ */
+export async function getApiKeysByCell(cellId: string): Promise<Array<{ id: string; name: string | null; lastUsedAt: Date | null; createdAt: Date; createdBy: string }>> {
+  const result = await db
+    .select({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      lastUsedAt: apiKeys.lastUsedAt,
+      createdAt: apiKeys.createdAt,
+      createdBy: apiKeys.createdBy,
+    })
+    .from(apiKeys)
+    .where(eq(apiKeys.cellId, cellId))
+    .orderBy(desc(apiKeys.createdAt))
+  
+  return result.map(key => ({
+    ...key,
+    createdAt: key.createdAt || new Date(),
+  }))
+}
+
+/**
+ * Delete an API key
+ */
+export async function deleteApiKey(keyId: string, cellId: string): Promise<boolean> {
+  const result = await db
+    .delete(apiKeys)
+    .where(
+      and(
+        eq(apiKeys.id, keyId),
+        eq(apiKeys.cellId, cellId)
+      )
+    )
+    .returning()
+  
+  return result.length > 0
+}
+
+/**
+ * Update the last used timestamp for an API key
+ */
+export async function updateApiKeyLastUsed(keyId: string): Promise<void> {
+  await db
+    .update(apiKeys)
+    .set({
+      lastUsedAt: new Date(),
+    })
+    .where(eq(apiKeys.id, keyId))
 }
 
