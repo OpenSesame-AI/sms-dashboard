@@ -95,6 +95,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { TruncatedCellContent } from "@/components/truncated-cell-content"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -3479,12 +3480,12 @@ export function ContactsTable<TData, TValue>({
                           } : {}),
                         }}
                       >
-                        <div className="min-w-0 overflow-hidden">
+                        <TruncatedCellContent>
                           {flexRender(
                             cell.column.columnDef.cell,
                             cell.getContext()
                           )}
-                        </div>
+                        </TruncatedCellContent>
                       </TableCell>
                     )
                   })}
