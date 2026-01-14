@@ -1,6 +1,6 @@
 /**
  * Composio client wrapper
- * Handles Composio SDK initialization and Salesforce integration operations
+ * Handles Composio SDK initialization and integration operations (Salesforce, HubSpot, etc.)
  */
 
 import { Composio } from '@composio/core'
@@ -384,3 +384,202 @@ export async function listSalesforceActions(connectionId?: string) {
   }
 }
 
+/**
+ * Get or create HubSpot auth config
+ * Returns the auth config ID for HubSpot
+ */
+export async function getOrCreateHubspotAuthConfig(): Promise<string> {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  // Check if we have auth config ID in environment
+  const authConfigId = process.env.COMPOSIO_HUBSPOT_AUTH_CONFIG_ID
+  
+  if (authConfigId) {
+    return authConfigId
+  }
+
+  // If not in env, we'll need to create it via dashboard
+  // For now, throw error asking user to set it up
+  throw new Error(
+    'COMPOSIO_HUBSPOT_AUTH_CONFIG_ID not set. ' +
+    'Please create a HubSpot auth config in Composio dashboard and set the ID in environment variables.'
+  )
+}
+
+/**
+ * Initiate HubSpot connection for a user
+ * Supports both OAuth2 and API Key authentication
+ * @param userId - User ID (from Clerk or your system)
+ * @param authConfigId - Composio auth config ID for HubSpot
+ * @param apiKey - Optional API key for API Key authentication (if provided, skips OAuth)
+ * @returns Connection request with redirect URL and request ID (or immediate connection for API Key)
+ */
+export async function initiateHubspotConnection(
+  userId: string,
+  authConfigId: string,
+  apiKey?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  // If API key is provided, use API Key authentication (immediate, no redirect)
+  if (apiKey) {
+    try {
+      // Import AuthScheme if available, otherwise use object format
+      const connectionRequest = await composio.connectedAccounts.initiate(
+        userId,
+        authConfigId,
+        {
+          config: {
+            auth_scheme: 'API_KEY',
+            val: {
+              generic_api_key: apiKey
+            }
+          }
+        } as any
+      )
+
+      return {
+        connectionRequestId: connectionRequest.id,
+        redirectUrl: null, // No redirect needed for API Key
+        connectionRequest, // Return the full request object
+        immediate: true, // Flag to indicate immediate connection
+      }
+    } catch (error) {
+      console.error('[Composio] Error initiating HubSpot API Key connection:', error)
+      throw error
+    }
+  }
+
+  // Otherwise, use OAuth2 flow
+  const connectionRequest = await composio.connectedAccounts.initiate(
+    userId,
+    authConfigId
+  )
+
+  return {
+    connectionRequestId: connectionRequest.id,
+    redirectUrl: connectionRequest.redirectUrl,
+    connectionRequest, // Return the full request object for waiting
+    immediate: false, // Flag to indicate OAuth flow
+  }
+}
+
+/**
+ * Execute a HubSpot tool/action
+ * @param connectionId - Composio connection ID
+ * @param actionName - Name of the HubSpot action (e.g., 'HUBSPOT_LIST_CONTACTS')
+ * @param params - Action parameters
+ * @param userId - User ID (optional, will try to get from connection if not provided)
+ * @returns Action result
+ */
+export async function executeHubspotAction(
+  connectionId: string,
+  actionName: string,
+  params: Record<string, any>,
+  userId?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized.')
+  }
+
+  // Get connection and toolkit info first
+  const connection = await composio.connectedAccounts.get(connectionId)
+  const toolkitSlug = (connection as any)?.toolkit?.slug || 'hubspot'
+  
+  // Get userId from connection if not provided
+  if (!userId) {
+    userId = (connection as any)?.userId || (connection as any)?.user?.id || 'default'
+    console.log('[Composio] Using userId from connection or default:', userId)
+  }
+  
+  // Try to get toolkit version - we need a real version, not "latest"
+  let toolkitVersion: string | null = null
+  let useDangerouslySkipVersionCheck = false
+  
+  // Try to get version from connection
+  const connectionVersion = (connection as any)?.toolkit?.version
+  if (connectionVersion && connectionVersion !== 'latest') {
+    toolkitVersion = connectionVersion
+    console.log('[Composio] Found toolkit version from connection:', toolkitVersion)
+  }
+  
+  // Try to get version from toolkitVersions if available
+  if (!toolkitVersion && (composio as any).tools?.toolkitVersions) {
+    try {
+      const toolkitVersions = (composio as any).tools.toolkitVersions
+      // toolkitVersions might be a function or an object with methods
+      if (typeof toolkitVersions === 'function') {
+        const versions = await toolkitVersions(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          // Get the first version (usually latest)
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions():', toolkitVersion)
+          }
+        }
+      } else if (typeof toolkitVersions === 'object' && typeof toolkitVersions.get === 'function') {
+        const versions = await toolkitVersions.get(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions.get():', toolkitVersion)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Composio] Could not get version from toolkitVersions:', err)
+    }
+  }
+  
+  // If we still don't have a real version, we'll need to use dangerouslySkipVersionCheck
+  if (!toolkitVersion || toolkitVersion === 'latest') {
+    console.warn('[Composio] No specific toolkit version found, will use dangerouslySkipVersionCheck')
+    useDangerouslySkipVersionCheck = true
+  }
+
+  // Try composio.tools.execute() - this is the correct method according to docs
+  if ((composio as any).tools && typeof (composio as any).tools.execute === 'function') {
+    try {
+      // Format: execute(slug, { userId, version, arguments, connectedAccountId }, modifiers?)
+      const executeBody: any = {
+        userId: userId,
+        arguments: params,  // Tool parameters go in 'arguments'
+        connectedAccountId: connectionId,
+      }
+      
+      if (toolkitVersion && toolkitVersion !== 'latest') {
+        executeBody.version = toolkitVersion
+      } else {
+        // Use dangerouslySkipVersionCheck if we don't have a real version
+        executeBody.dangerouslySkipVersionCheck = true
+      }
+      
+      console.log('[Composio] Using composio.tools.execute() with format:', {
+        actionName,
+        userId: executeBody.userId,
+        hasVersion: !!executeBody.version,
+        version: executeBody.version,
+        useDangerouslySkipVersionCheck: executeBody.dangerouslySkipVersionCheck,
+        connectedAccountId: executeBody.connectedAccountId,
+      })
+      
+      return await (composio as any).tools.execute(actionName, executeBody)
+    } catch (err) {
+      console.error('[Composio] tools.execute() failed:', err)
+      throw err
+    }
+  }
+
+  // If tools.execute() is not available, throw an error
+  throw new Error(
+    `Unable to execute HubSpot action ${actionName}. ` +
+    `The Composio SDK tools.execute() method is not available. ` +
+    `Please check the Composio SDK documentation for the correct way to execute actions.`
+  )
+}

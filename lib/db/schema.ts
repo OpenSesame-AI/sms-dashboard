@@ -156,6 +156,22 @@ export const salesforceContacts = pgTable('salesforce_contacts', {
   uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
 }))
 
+export const hubspotContacts = pgTable('hubspot_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  hubspotId: varchar('hubspot_id').notNull(),
+  firstName: varchar('first_name'),
+  lastName: varchar('last_name'),
+  email: varchar('email'),
+  companyId: varchar('company_id'),
+  companyName: varchar('company_name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
   cellId: uuid('cell_id').notNull().references(() => cells.id, { onDelete: 'cascade' }),
@@ -194,6 +210,9 @@ export type Integration = typeof integrations.$inferSelect
 export type NewIntegration = typeof integrations.$inferInsert
 export type SalesforceContact = typeof salesforceContacts.$inferSelect
 export type NewSalesforceContact = typeof salesforceContacts.$inferInsert
+
+export type HubspotContact = typeof hubspotContacts.$inferSelect
+export type NewHubspotContact = typeof hubspotContacts.$inferInsert
 export type ApiKey = typeof apiKeys.$inferSelect
 export type NewApiKey = typeof apiKeys.$inferInsert
 

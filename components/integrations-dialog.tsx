@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { SalesforceIntegration } from "@/components/integrations/salesforce-integration"
+import { HubspotIntegration } from "@/components/integrations/hubspot-integration"
 
 interface IntegrationsDialogProps {
   cellId: string
@@ -38,6 +39,7 @@ export function IntegrationsDialog({
         </DialogHeader>
         <div className="py-4 space-y-4">
           <SalesforceIntegration cellId={cellId} />
+          <HubspotIntegration cellId={cellId} />
         </div>
       </DialogContent>
     </Dialog>

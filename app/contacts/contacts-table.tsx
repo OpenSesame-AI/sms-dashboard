@@ -36,6 +36,7 @@ import { cn, getCellCountry } from "@/lib/utils"
 import { useCell } from "@/components/cell-context"
 import { createColumns } from "./columns"
 import { createSalesforceColumns } from "./salesforce-columns"
+import { createHubspotColumns } from "./hubspot-columns"
 import Image from "next/image"
 import {
   DndContext,
@@ -968,7 +969,12 @@ export function ContactsTable<TData, TValue>({
   const columns = React.useMemo<ColumnDef<TData, TValue>[]>(() => {
     // Check if any contacts have Salesforce data (check for any Salesforce field)
     const hasSalesforceData = contactsData.some((contact) => 
-      contact.salesforceId || contact.firstName || contact.lastName || contact.email || contact.accountName
+      contact.salesforceId || contact.accountName || contact.accountId
+    )
+    
+    // Check if any contacts have HubSpot data (check for HubSpot-specific fields)
+    const hasHubspotData = contactsData.some((contact) => 
+      contact.hubspotId || contact.companyId || contact.companyName
     )
     
     // Create Salesforce columns if data exists
@@ -1028,6 +1034,75 @@ export function ContactsTable<TData, TValue>({
                   <Image
                     src="/Salesforce_idN3OdcTG__1.png"
                     alt="Salesforce"
+                    width={12}
+                    height={12}
+                    className="h-3 w-3"
+                  />
+                  {typeof col.header === 'function' ? col.header({ column } as any) : col.header}
+                </div>
+              </ColumnHeaderMenu>
+            ),
+          }
+        }) as ColumnDef<TData, TValue>[])
+      : []
+    
+    // Create HubSpot columns if data exists
+    const hubspotColumnDefs: ColumnDef<TData, TValue>[] = hasHubspotData
+      ? (createHubspotColumns().map((col) => {
+          const accessorKey = 'accessorKey' in col ? col.accessorKey : undefined
+          const columnId = col.id || String(accessorKey || "")
+          const columnName = typeof col.header === 'string'
+            ? col.header
+            : String(accessorKey || columnId).replace(/([A-Z])/g, ' $1').replace(/^./, (str: string) => str.toUpperCase())
+          
+          return {
+            ...col,
+            id: columnId,
+            header: ({ column }) => (
+              <ColumnHeaderMenu
+                columnId={column.id}
+                columnName={columnName}
+                columnType="regular"
+                columnKey={String(accessorKey || "")}
+                onHide={() => {
+                  setColumnVisibilityWithSave((prev) => ({
+                    ...prev,
+                    [column.id]: !prev[column.id],
+                  }))
+                }}
+                onSortAsc={() => {
+                  column.toggleSorting(false)
+                }}
+                onSortDesc={() => {
+                  column.toggleSorting(true)
+                }}
+                onFilter={(condition) => {
+                  const newFilterId = Date.now().toString()
+                  const columnKey = String(accessorKey || "")
+                  setFilters((prev) => [...prev, {
+                    id: newFilterId,
+                    column: columnKey,
+                    condition: condition || getDefaultFilterCondition(columnKey),
+                    value: "",
+                  }])
+                  setFilterPopoverOpen(true)
+                }}
+                onPin={() => {
+                  setPinnedColumns((prev) => {
+                    const newSet = new Set(prev)
+                    if (newSet.has(column.id)) {
+                      newSet.delete(column.id)
+                    } else {
+                      newSet.add(column.id)
+                    }
+                    return newSet
+                  })
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <Image
+                    src="/HubSpot_idUw_2QApK_1.svg"
+                    alt="HubSpot"
                     width={12}
                     height={12}
                     className="h-3 w-3"
@@ -1278,7 +1353,7 @@ export function ContactsTable<TData, TValue>({
       }
     })
     
-    return [...transformedRegularColumns, ...salesforceColumnDefs, ...aiColumnDefs, ...alertColumnDefs]
+    return [...transformedRegularColumns, ...salesforceColumnDefs, ...hubspotColumnDefs, ...aiColumnDefs, ...alertColumnDefs]
   }, [initialColumnOrder, baseColumns, contactsData, aiColumns, analysisResults, analysisLoading, alerts, alertTriggers, ColumnHeaderMenu, setColumnVisibility, setFilters, setFilterPopoverOpen, setPinnedColumns])
   
   

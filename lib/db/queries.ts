@@ -1,5 +1,5 @@
 import { db, postgresClient } from './index'
-import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, columnVisibility, availablePhoneNumbers, integrations, salesforceContacts, apiKeys } from './schema'
+import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, columnVisibility, availablePhoneNumbers, integrations, salesforceContacts, hubspotContacts, apiKeys } from './schema'
 import { eq, sql, desc, asc, and, gte, or, like, isNull } from 'drizzle-orm'
 import { normalizePhoneNumber, getCellCountry } from '@/lib/utils'
 import { randomBytes, pbkdf2Sync, timingSafeEqual } from 'crypto'
@@ -21,6 +21,9 @@ export type Contact = {
   email?: string
   accountId?: string
   accountName?: string
+  hubspotId?: string
+  companyId?: string
+  companyName?: string
 }
 
 // Helper functions to format dates as strings
@@ -108,15 +111,19 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
           lm."lastStatus",
           lm."lastMessageDirection",
           sf."salesforce_id" as "salesforceId",
-          sf."first_name" as "firstName",
-          sf."last_name" as "lastName",
-          sf."email" as "email",
+          COALESCE(sf."first_name", hs."first_name") as "firstName",
+          COALESCE(sf."last_name", hs."last_name") as "lastName",
+          COALESCE(sf."email", hs."email") as "email",
           sf."account_id" as "accountId",
-          sf."account_name" as "accountName"
+          sf."account_name" as "accountName",
+          hs."hubspot_id" as "hubspotId",
+          hs."company_id" as "companyId",
+          hs."company_name" as "companyName"
         FROM phone_user_mappings p
         LEFT JOIN latest_messages lm ON lm.phone_number = p.phone_number
         LEFT JOIN message_counts mc ON mc.phone_number = p.phone_number
         LEFT JOIN salesforce_contacts sf ON sf.phone_number = p.phone_number AND sf.cell_id = p.cell_id
+        LEFT JOIN hubspot_contacts hs ON hs.phone_number = p.phone_number AND hs.cell_id = p.cell_id
         WHERE p.cell_id = ${cellId}
         ORDER BY lm."lastActivity" DESC NULLS LAST
       `
@@ -149,15 +156,19 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
           lm."lastStatus",
           lm."lastMessageDirection",
           sf."salesforce_id" as "salesforceId",
-          sf."first_name" as "firstName",
-          sf."last_name" as "lastName",
-          sf."email" as "email",
+          COALESCE(sf."first_name", hs."first_name") as "firstName",
+          COALESCE(sf."last_name", hs."last_name") as "lastName",
+          COALESCE(sf."email", hs."email") as "email",
           sf."account_id" as "accountId",
-          sf."account_name" as "accountName"
+          sf."account_name" as "accountName",
+          hs."hubspot_id" as "hubspotId",
+          hs."company_id" as "companyId",
+          hs."company_name" as "companyName"
         FROM phone_user_mappings p
         LEFT JOIN latest_messages lm ON lm.phone_number = p.phone_number
         LEFT JOIN message_counts mc ON mc.phone_number = p.phone_number
         LEFT JOIN salesforce_contacts sf ON sf.phone_number = p.phone_number AND sf.cell_id = p.cell_id
+        LEFT JOIN hubspot_contacts hs ON hs.phone_number = p.phone_number AND hs.cell_id = p.cell_id
         ORDER BY lm."lastActivity" DESC NULLS LAST
       `
 
@@ -197,6 +208,9 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
         email: row.email || undefined,
         accountId: row.accountId || undefined,
         accountName: row.accountName || undefined,
+        hubspotId: row.hubspotId || undefined,
+        companyId: row.companyId || undefined,
+        companyName: row.companyName || undefined,
       }
       
       if (existing) {
