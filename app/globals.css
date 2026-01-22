@@ -122,6 +122,10 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Override body background when signed out to show image */
+  body.signed-out-background {
+    background: transparent !important;
+  }
 }
 
 /* Clerk OrganizationSwitcher dark mode fixes */
@@ -217,4 +221,16 @@ header > div {
 [data-radix-dialog-content] {
   pointer-events: auto !important;
   z-index: 51 !important;
+}
+
+/* Custom Sign-in page background */
+/* The background is applied via inline styles in the component, but we ensure body/html don't interfere */
+body:has([data-clerk-element="root"]) {
+  background: transparent !important;
+}
+
+/* Ensure the sign-in page container covers the full viewport */
+[data-clerk-element="root"] {
+  position: relative;
+  z-index: 1;
 }

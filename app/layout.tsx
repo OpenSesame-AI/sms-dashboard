@@ -33,8 +33,8 @@ export default function RootLayout({
           rootBox: "mx-auto",
         },
       }}
-      signInUrl="/"
-      signUpUrl="/"
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
     >
       <html lang="en" suppressHydrationWarning>
         <body

@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { SignIn, SignedIn, SignedOut, OrganizationSwitcher } from "@clerk/nextjs"
+import { SignedIn, SignedOut, OrganizationSwitcher } from "@clerk/nextjs"
 import { HeaderActions } from "@/components/header-actions"
 import { TableSelector } from "@/components/table-selector"
 import { AnalyticsButton } from "@/components/analytics-button"
@@ -10,8 +10,6 @@ import { IntegrationsButton } from "@/components/integrations-button"
 import { ApiKeysButton } from "@/components/api-keys-button"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import { UserButton } from "@clerk/nextjs"
-import { WebViewWarning } from "@/components/webview-warning"
-import { isWebView } from "@/lib/utils"
 
 export function PublicRouteWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -21,31 +19,9 @@ export function PublicRouteWrapper({ children }: { children: React.ReactNode }) 
     return <>{children}</>
   }
 
-  const isInWebView = typeof window !== 'undefined' && isWebView()
-
   return (
     <>
       <SignedOut>
-        <div className="flex min-h-screen flex-col items-center justify-center">
-          <WebViewWarning />
-          <div className="w-full max-w-md">
-            <SignIn 
-              routing="path"
-              path="/"
-              signUpUrl="/"
-              appearance={{
-                elements: {
-                  rootBox: "mx-auto",
-                  // In WebView, de-prioritize OAuth buttons (they won't work anyway)
-                  // Email/password will be shown first by Clerk if enabled
-                  ...(isInWebView && {
-                    socialButtonsBlockButton: "opacity-50",
-                  }),
-                },
-              }}
-            />
-          </div>
-        </div>
         {children}
       </SignedOut>
       <SignedIn>

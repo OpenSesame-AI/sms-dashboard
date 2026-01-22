@@ -4,6 +4,10 @@ import { NextResponse } from "next/server";
 const isPublicRoute = createRouteMatcher([
   "/c/:path*",
   "/api/v1/:path*", // Allow API key authentication for v1 API routes
+  "/sign-in/:path*", // Allow access to sign-in page and all sub-routes (factor-one, etc.)
+  "/sign-up/:path*", // Allow access to sign-up page and all sub-routes
+  "/sign-in", // Exact match for sign-in page
+  "/sign-up", // Exact match for sign-up page
 ]);
 
 /**
@@ -65,7 +69,10 @@ export default clerkMiddleware(async (auth, req) => {
   
   // Apply authentication protection
   if (!isPublicRoute(req)) {
-    await auth.protect();
+    const url = new URL(req.url);
+    await auth.protect({
+      unauthenticatedUrl: `${url.origin}/sign-in`,
+    });
   }
   
   return response;
