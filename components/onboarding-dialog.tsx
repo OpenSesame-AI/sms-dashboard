@@ -313,7 +313,7 @@ export function OnboardingDialog({ open, onComplete }: OnboardingDialogProps) {
                   <SelectTrigger id="onboarding-cell-country">
                     <SelectValue placeholder="Select country" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[52]">
                     <SelectItem value="US">United States</SelectItem>
                     <SelectItem value="CA">Canada</SelectItem>
                     <SelectItem value="GB">United Kingdom</SelectItem>
@@ -327,9 +327,7 @@ export function OnboardingDialog({ open, onComplete }: OnboardingDialogProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <p className="text-sm text-muted-foreground">
-                A phone number will be automatically purchased from Twilio for this cell.
-              </p>
+             
             </div>
           )}
 
