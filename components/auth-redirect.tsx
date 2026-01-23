@@ -7,7 +7,7 @@ export function AuthRedirect() {
   const router = useRouter()
   
   useEffect(() => {
-    router.push("/contacts")
+    router.push("/table")
   }, [router])
   
   return null

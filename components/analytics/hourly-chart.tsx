@@ -43,7 +43,7 @@ export function HourlyChart({ data }: HourlyChartProps) {
               }}
               labelFormatter={(value) => `${value}:00`}
             />
-            <Bar dataKey="count" fill="var(--chart-4)" />
+            <Bar dataKey="count" fill="var(--primary)" />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>

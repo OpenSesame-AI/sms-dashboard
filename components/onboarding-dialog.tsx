@@ -613,7 +613,7 @@ function OnboardingStep2Context({ cellId }: { cellId: string }) {
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          System Prompt
+          Personality
         </button>
         <button
           onClick={() => setActiveTab("files")}
@@ -642,7 +642,7 @@ function OnboardingStep2Context({ cellId }: { cellId: string }) {
         {activeTab === "text" && (
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="onboarding-system-prompt">System Prompt</Label>
+              <Label htmlFor="onboarding-system-prompt">Personality</Label>
               <Textarea
                 id="onboarding-system-prompt"
                 value={editedPrompt}

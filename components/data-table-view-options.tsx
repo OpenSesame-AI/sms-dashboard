@@ -17,6 +17,20 @@ interface DataTableViewOptionsProps<TData> {
   table: Table<TData>
 }
 
+function formatColumnName(columnId: string): string {
+  // Replace underscores with spaces
+  let formatted = columnId.replace(/_/g, " ")
+  
+  // Split camelCase into separate words
+  formatted = formatted.replace(/([a-z])([A-Z])/g, "$1 $2")
+  
+  // Capitalize each word
+  return formatted
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ")
+}
+
 export function DataTableViewOptions<TData>({
   table,
 }: DataTableViewOptionsProps<TData>) {
@@ -32,7 +46,7 @@ export function DataTableViewOptions<TData>({
           View
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[150px]">
+      <DropdownMenuContent align="end" className="w-[220px] max-h-[400px]">
         <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {table
@@ -45,11 +59,10 @@ export function DataTableViewOptions<TData>({
             return (
               <DropdownMenuCheckboxItem
                 key={column.id}
-                className="capitalize"
                 checked={column.getIsVisible()}
                 onCheckedChange={(value) => column.toggleVisibility(!!value)}
               >
-                {column.id}
+                {formatColumnName(column.id)}
               </DropdownMenuCheckboxItem>
             )
           })}

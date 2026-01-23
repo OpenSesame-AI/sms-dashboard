@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Cloud, CheckCircle2, XCircle, RefreshCw, Users } from "lucide-react"
+import Image from "next/image"
+import { CheckCircle2, XCircle, RefreshCw, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -16,10 +17,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 interface SalesforceIntegrationProps {
-  cellId: string
+  // No props needed - global integration
 }
 
-export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
+export function SalesforceIntegration({}: SalesforceIntegrationProps) {
   const queryClient = useQueryClient()
 
   // Fetch connection status
@@ -28,10 +29,9 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
     connectedAt?: string
     syncedContactsCount?: number
   }>({
-    queryKey: ["salesforce-integration", cellId],
+    queryKey: ["salesforce-integration"],
     queryFn: async () => {
-      // TODO: Replace with actual API endpoint
-      const response = await fetch(`/api/integrations/salesforce/status?cellId=${cellId}`)
+      const response = await fetch(`/api/integrations/salesforce/status`)
       if (!response.ok) {
         // If endpoint doesn't exist yet, return disconnected status
         if (response.status === 404) {
@@ -50,11 +50,10 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
   // Connect mutation
   const connectMutation = useMutation({
     mutationFn: async () => {
-      // TODO: Replace with actual API endpoint
       const response = await fetch(`/api/integrations/salesforce/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cellId }),
+        body: JSON.stringify({}),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
@@ -63,7 +62,7 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
       return response.json()
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["salesforce-integration", cellId] })
+      queryClient.invalidateQueries({ queryKey: ["salesforce-integration"] })
       if (data.authUrl) {
         // Redirect to OAuth URL if provided
         window.location.href = data.authUrl
@@ -81,11 +80,10 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
   // Disconnect mutation
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      // TODO: Replace with actual API endpoint
       const response = await fetch(`/api/integrations/salesforce/disconnect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cellId }),
+        body: JSON.stringify({}),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
@@ -94,7 +92,7 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
       return response.json()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["salesforce-integration", cellId] })
+      queryClient.invalidateQueries({ queryKey: ["salesforce-integration"] })
       toast.success("Disconnected from Salesforce")
     },
     onError: (error) => {
@@ -107,11 +105,10 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
   // Sync contacts mutation
   const syncContactsMutation = useMutation({
     mutationFn: async () => {
-      // TODO: Replace with actual API endpoint
       const response = await fetch(`/api/integrations/salesforce/sync-contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cellId }),
+        body: JSON.stringify({}),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
@@ -120,11 +117,11 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
       return response.json()
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["salesforce-integration", cellId] })
+      queryClient.invalidateQueries({ queryKey: ["salesforce-integration"] })
       toast.success(
-        data.syncedCount
-          ? `Synced ${data.syncedCount} contacts from Salesforce`
-          : "Contacts synced successfully"
+        data.message || (data.syncedCount
+          ? `Synced ${data.syncedCount} contacts from Salesforce to ${data.cellsSynced || 1} cell${(data.cellsSynced || 1) > 1 ? 's' : ''}`
+          : "Contacts synced successfully")
       )
     },
     onError: (error) => {
@@ -139,9 +136,15 @@ export function SalesforceIntegration({ cellId }: SalesforceIntegrationProps) {
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
-              <Cloud className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
+          
+              <Image
+                src="/Salesforce_idN3OdcTG__1.png"
+                alt="Salesforce"
+                width={20}
+                height={20}
+                className="h-5 w-5"
+              />
+           
             <div>
               <CardTitle className="flex items-center gap-2">
                 Salesforce

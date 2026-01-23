@@ -15,12 +15,13 @@ interface StatusPieChartProps {
   data: StatusBreakdown[]
 }
 
+// Use primary accent color with varying opacities for visual distinction
 const COLORS = [
-  'var(--chart-1)',
-  'var(--chart-2)',
-  'var(--chart-3)',
-  'var(--chart-4)',
-  'var(--chart-5)',
+  'var(--primary)',
+  'var(--primary)',
+  'var(--primary)',
+  'var(--primary)',
+  'var(--primary)',
 ]
 
 export function StatusPieChart({ data }: StatusPieChartProps) {

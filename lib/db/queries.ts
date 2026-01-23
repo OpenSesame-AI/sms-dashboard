@@ -1375,21 +1375,25 @@ export async function getIntegrationStatus(cellId: string, type: string) {
  * @deprecated Use createIntegrationWithConnectionId for Composio integrations
  */
 export async function createIntegration(
-  cellId: string,
+  userId: string,
+  cellId: string | null,
   type: string,
   accessToken: string,
   refreshToken: string,
   instanceUrl: string,
+  organizationId?: string | null,
   metadata?: Record<string, any>
 ) {
   const result = await db
     .insert(integrations)
     .values({
+      userId,
       cellId,
       type,
       accessToken,
       refreshToken,
       instanceUrl,
+      organizationId: organizationId || null,
       metadata: metadata ? JSON.stringify(metadata) : null,
       connectedAt: new Date(),
       updatedAt: new Date(),
@@ -1401,15 +1405,19 @@ export async function createIntegration(
 
 /**
  * Create integration with Composio connection ID
- * @param cellId - Cell ID
+ * @param userId - User ID
+ * @param cellId - Cell ID (null for global integrations)
  * @param type - Integration type (e.g., 'salesforce')
  * @param connectionId - Composio connection ID
+ * @param organizationId - Organization ID (optional, null for personal integrations)
  * @param metadata - Additional metadata (optional)
  */
 export async function createIntegrationWithConnectionId(
-  cellId: string,
+  userId: string,
+  cellId: string | null,
   type: string,
   connectionId: string,
+  organizationId?: string | null,
   metadata?: Record<string, any>
 ) {
   const integrationMetadata = {
@@ -1420,11 +1428,13 @@ export async function createIntegrationWithConnectionId(
   const result = await db
     .insert(integrations)
     .values({
+      userId,
       cellId,
       type,
       accessToken: null, // Not used for Composio
       refreshToken: null, // Not used for Composio
       instanceUrl: null, // Not used for Composio
+      organizationId: organizationId || null,
       metadata: JSON.stringify(integrationMetadata),
       connectedAt: new Date(),
       updatedAt: new Date(),
@@ -1517,6 +1527,99 @@ export async function deleteIntegration(cellId: string, type: string) {
     .where(
       and(
         eq(integrations.cellId, cellId),
+        eq(integrations.type, type)
+      )
+    )
+}
+
+/**
+ * Get global integration (cellId is null) for a user/org
+ * @param userId - User ID
+ * @param orgId - Organization ID (null for personal)
+ * @param type - Integration type (e.g., 'salesforce')
+ */
+export async function getGlobalIntegration(userId: string, orgId: string | null, type: string) {
+  const result = await db
+    .select()
+    .from(integrations)
+    .where(
+      and(
+        isNull(integrations.cellId),
+        eq(integrations.userId, userId),
+        orgId ? eq(integrations.organizationId, orgId) : isNull(integrations.organizationId),
+        eq(integrations.type, type)
+      )
+    )
+    .limit(1)
+  
+  return result[0] || null
+}
+
+/**
+ * Create or update global integration with Composio connection ID
+ * @param userId - User ID
+ * @param orgId - Organization ID (null for personal)
+ * @param type - Integration type (e.g., 'salesforce')
+ * @param connectionId - Composio connection ID
+ * @param metadata - Additional metadata (optional)
+ */
+export async function createOrUpdateGlobalIntegrationWithConnectionId(
+  userId: string,
+  orgId: string | null,
+  type: string,
+  connectionId: string,
+  metadata?: Record<string, any>
+) {
+  // Check if global integration already exists
+  const existing = await getGlobalIntegration(userId, orgId, type)
+  
+  const integrationMetadata = {
+    connectionId,
+    ...metadata,
+  }
+
+  if (existing) {
+    // Update existing integration
+    return await updateIntegration(existing.id, {
+      connectionId,
+      metadata: integrationMetadata,
+    })
+  } else {
+    // Create new global integration
+    const result = await db
+      .insert(integrations)
+      .values({
+        cellId: null, // Global integration
+        userId,
+        organizationId: orgId,
+        type,
+        accessToken: null, // Not used for Composio
+        refreshToken: null, // Not used for Composio
+        instanceUrl: null, // Not used for Composio
+        metadata: JSON.stringify(integrationMetadata),
+        connectedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning()
+    
+    return result[0] || null
+  }
+}
+
+/**
+ * Delete global integration
+ * @param userId - User ID
+ * @param orgId - Organization ID (null for personal)
+ * @param type - Integration type
+ */
+export async function deleteGlobalIntegration(userId: string, orgId: string | null, type: string) {
+  await db
+    .delete(integrations)
+    .where(
+      and(
+        isNull(integrations.cellId),
+        eq(integrations.userId, userId),
+        orgId ? eq(integrations.organizationId, orgId) : isNull(integrations.organizationId),
         eq(integrations.type, type)
       )
     )

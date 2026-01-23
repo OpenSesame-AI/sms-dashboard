@@ -1,14 +1,14 @@
 "use client"
 
 import { SignedIn, SignedOut } from "@clerk/nextjs"
-import { AuthRedirect } from "@/components/auth-redirect"
+import { CellsGrid } from "@/components/cells-grid"
 import { SignInRedirect } from "@/components/sign-in-redirect"
 
 export default function Home() {
   return (
     <>
       <SignedIn>
-        <AuthRedirect />
+        <CellsGrid />
       </SignedIn>
       <SignedOut>
         <SignInRedirect />

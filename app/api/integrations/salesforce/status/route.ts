@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { getIntegration, getCellById, getConnectionIdFromIntegration } from '@/lib/db/queries'
+import { getGlobalIntegration, getConnectionIdFromIntegration } from '@/lib/db/queries'
 import { getConnection, isConnectionStatusActive, composio } from '@/lib/composio'
 
 export async function GET(request: NextRequest) {
@@ -13,29 +13,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { searchParams } = new URL(request.url)
-    const cellId = searchParams.get('cellId')
-
-    if (!cellId) {
-      return NextResponse.json(
-        { error: 'cellId is required' },
-        { status: 400 }
-      )
-    }
-
-    // Verify user has access to the cell
-    const cell = await getCellById(cellId, userId, orgId)
-    if (!cell) {
-      return NextResponse.json(
-        { error: 'Cell not found or access denied' },
-        { status: 404 }
-      )
-    }
-
-    // Get integration from database
-    const integration = await getIntegration(cellId, 'salesforce')
+    // Get global integration from database (no cellId required)
+    const integration = await getGlobalIntegration(userId, orgId || null, 'salesforce')
     
-    console.log(`[Salesforce Status] Integration lookup for cellId: ${cellId}`, {
+    console.log(`[Salesforce Status] Integration lookup for userId: ${userId}, orgId: ${orgId || null}`, {
       integrationExists: !!integration,
       integrationId: integration?.id,
       hasMetadata: !!integration?.metadata,
@@ -43,8 +24,7 @@ export async function GET(request: NextRequest) {
     })
     
     if (!integration) {
-      console.warn(`[Salesforce Status] No integration found in database for cellId: ${cellId}`, {
-        cellId,
+      console.warn(`[Salesforce Status] No global integration found in database`, {
         userId,
         orgId: orgId || null,
       })
@@ -148,11 +128,12 @@ export async function GET(request: NextRequest) {
             const connectionStatus = firstConnection.data?.status || firstConnection.status || 'unknown'
             const isActive = isConnectionStatusActive(connectionStatus)
             
-            console.log(`[Salesforce Status] Salesforce connection found in Composio but not linked to cell`, {
+            console.log(`[Salesforce Status] Salesforce connection found in Composio but not linked to global integration`, {
               connectionId: firstConnection.id,
               status: connectionStatus,
               isActive,
-              cellId,
+              userId,
+              orgId: orgId || null,
             })
             
             // If connection is active, we can still report it as connected
@@ -163,10 +144,10 @@ export async function GET(request: NextRequest) {
               connectionId: firstConnection.id,
               connectionStatus: connectionStatus,
               error: isActive 
-                ? 'Salesforce connection exists in Composio but is not linked to this cell in the database'
+                ? 'Salesforce connection exists in Composio but is not linked to your account in the database'
                 : `Salesforce connection found but status is: ${connectionStatus}`,
               composioConnectionsFound: salesforceConnections.length,
-              suggestion: 'Please reconnect Salesforce integration through the UI to link it to this cell',
+              suggestion: 'Please reconnect Salesforce integration through the UI to link it to your account',
               needsLinking: true, // Flag to indicate connection exists but needs database entry
             })
           }
@@ -211,7 +192,7 @@ export async function GET(request: NextRequest) {
         // Check if connection exists
         if (!connection) {
           // Connection doesn't exist
-          console.error(`[Salesforce Status] Connection ${connectionId} not found for cellId: ${cellId}`)
+          console.error(`[Salesforce Status] Connection ${connectionId} not found`)
           return NextResponse.json({
             connected: false,
             syncedContactsCount: integration.syncedContactsCount || 0,
@@ -232,7 +213,8 @@ export async function GET(request: NextRequest) {
         // (Some Composio SDK versions might not expose status directly)
         if (!connectionStatus) {
           console.warn(`[Salesforce Status] Connection ${connectionId} exists but status field is missing`, {
-            cellId,
+            userId,
+            orgId: orgId || null,
             connectionId,
             connectionKeys: Object.keys(connection),
             connectionPreview: JSON.stringify(connection).substring(0, 500),
@@ -249,7 +231,8 @@ export async function GET(request: NextRequest) {
         if (!isActive) {
           // Connection exists but is not active
           console.warn(`[Salesforce Status] Connection ${connectionId} exists but has inactive status: ${connectionStatus}`, {
-            cellId,
+            userId,
+            orgId: orgId || null,
             connectionId,
             status: connectionStatus,
             fullConnection: connection,
@@ -273,10 +256,12 @@ export async function GET(request: NextRequest) {
         }
 
         // Connection is active
-        console.log(`[Salesforce Status] Connection ${connectionId} is active for cellId: ${cellId}`, {
+        console.log(`[Salesforce Status] Connection ${connectionId} is active`, {
           status: connectionStatus,
           syncedContactsCount: integration.syncedContactsCount || 0,
           connectionId: (connection as any)?.id,
+          userId,
+          orgId: orgId || null,
         })
         
         return NextResponse.json({
@@ -290,7 +275,6 @@ export async function GET(request: NextRequest) {
       } catch (error) {
         // Log detailed error information for debugging
         const errorDetails = {
-          cellId,
           connectionId,
           userId,
           orgId: orgId || null,
@@ -327,7 +311,6 @@ export async function GET(request: NextRequest) {
       errorType: error instanceof Error ? error.constructor.name : typeof error,
       errorMessage: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
-      cellId: request.nextUrl.searchParams.get('cellId') || 'unknown',
     }
     
     console.error('[Salesforce Status] Unexpected error in status route:', errorDetails)

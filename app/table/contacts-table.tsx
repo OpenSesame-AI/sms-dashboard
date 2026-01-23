@@ -34,6 +34,7 @@ import { Contact, ConversationMessage } from "@/lib/data"
 import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel, Bell, AlertTriangle, WandSparkles, Settings, Eye, EyeOff, Copy, ArrowLeft, ArrowRight, Pin, Info, Palette, Type, Calendar, Hash, Tag } from "lucide-react"
 import { cn, getCellCountry } from "@/lib/utils"
 import { useCell } from "@/components/cell-context"
+import { ShareButton } from "@/components/share-button"
 import { createColumns } from "./columns"
 import { createSalesforceColumns } from "./salesforce-columns"
 import { createHubspotColumns } from "./hubspot-columns"
@@ -2662,7 +2663,12 @@ export function ContactsTable<TData, TValue>({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <DataTableViewOptions table={table} />
+          {selectedCell && (
+            <ShareButton 
+              cellId={selectedCell.id} 
+              phoneNumber={selectedCell?.phoneNumber} 
+            />
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">
@@ -3020,6 +3026,7 @@ export function ContactsTable<TData, TValue>({
                   </div>
                 </PopoverContent>
               </Popover>
+              <DataTableViewOptions table={table} />
             </div>
             <div className="flex items-center gap-2 h-9">
               {selectedCount > 0 ? (

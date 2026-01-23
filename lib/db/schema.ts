@@ -125,7 +125,9 @@ export const availablePhoneNumbers = pgTable('available_phone_numbers', {
 
 export const integrations = pgTable('integrations', {
   id: uuid('id').primaryKey().defaultRandom(),
-  cellId: uuid('cell_id').notNull().references(() => cells.id, { onDelete: 'cascade' }),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }), // nullable - null means global integration
+  userId: varchar('user_id').notNull(), // User who owns the integration
+  organizationId: varchar('organization_id'), // nullable - null means personal integration, string means org integration
   type: varchar('type').notNull(), // e.g., 'salesforce'
   accessToken: text('access_token'), // encrypted (deprecated - use metadata.connectionId for Composio)
   refreshToken: text('refresh_token'), // encrypted (deprecated - use metadata.connectionId for Composio)
@@ -137,7 +139,10 @@ export const integrations = pgTable('integrations', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (table) => ({
+  // Legacy per-cell integration: one per type per cell (cellId is not null)
   uniqueCellType: unique().on(table.cellId, table.type),
+  // Note: Global integrations (cellId is null) will be enforced in application logic
+  // to ensure one per type per user/org combination
 }))
 
 export const salesforceContacts = pgTable('salesforce_contacts', {

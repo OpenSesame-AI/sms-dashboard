@@ -55,14 +55,15 @@ export function DirectionChart({ data }: DirectionChartProps) {
             <Bar
               dataKey="inbound"
               stackId="messages"
-              fill="var(--chart-2)"
+              fill="var(--primary)"
               name="Inbound"
             />
             <Bar
               dataKey="outbound"
               stackId="messages"
-              fill="var(--chart-3)"
+              fill="var(--primary)"
               name="Outbound"
+              opacity={0.7}
             />
           </BarChart>
         </ResponsiveContainer>

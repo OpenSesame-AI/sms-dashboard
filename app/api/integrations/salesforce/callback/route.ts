@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { getCellById, createIntegrationWithConnectionId, getIntegration, updateIntegration } from '@/lib/db/queries'
+import { createOrUpdateGlobalIntegrationWithConnectionId, getGlobalIntegration } from '@/lib/db/queries'
 import { composio } from '@/lib/composio'
 
 export async function GET(request: NextRequest) {
@@ -30,36 +30,27 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Decode state to get cellId and connectionRequestId
-    let cellId: string
+    // Decode state to get userId, orgId, and connectionRequestId
     let connectionRequestId: string
+    let stateUserId: string
+    let stateOrgId: string | null
     try {
       const decodedState = Buffer.from(state, 'base64').toString('utf-8')
       const stateData = JSON.parse(decodedState)
-      cellId = stateData.cellId
+      stateUserId = stateData.userId
+      stateOrgId = stateData.orgId || null
       connectionRequestId = stateData.connectionRequestId
-    } catch (err) {
-      // Fallback to old format for backward compatibility
-      try {
-        const decodedState = Buffer.from(state, 'base64').toString('utf-8')
-        const [decodedCellId] = decodedState.split(':')
-        cellId = decodedCellId
-        // If no connectionRequestId, we can't proceed with Composio flow
+      
+      // Verify state matches current user
+      if (stateUserId !== userId || stateOrgId !== (orgId || null)) {
         return NextResponse.redirect(
-          new URL('/?error=invalid_state_format', request.url)
-        )
-      } catch (parseErr) {
-        return NextResponse.redirect(
-          new URL('/?error=invalid_state', request.url)
+          new URL('/?error=state_mismatch', request.url)
         )
       }
-    }
-
-    // Verify user has access to the cell
-    const cell = await getCellById(cellId, userId, orgId)
-    if (!cell) {
+    } catch (err) {
+      // Fallback to old format for backward compatibility (legacy per-cell integrations)
       return NextResponse.redirect(
-        new URL('/?error=cell_not_found', request.url)
+        new URL('/?error=invalid_state_format', request.url)
       )
     }
 
@@ -119,29 +110,17 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Check if integration already exists
-    const existingIntegration = await getIntegration(cellId, 'salesforce')
-    
-    if (existingIntegration) {
-      // Update existing integration with connection ID
-      await updateIntegration(existingIntegration.id, {
-        connectionId,
-        accessToken: null, // Clear old tokens
-        refreshToken: null,
-        instanceUrl: null,
-      })
-    } else {
-      // Create new integration with connection ID
-      await createIntegrationWithConnectionId(
-        cellId,
-        'salesforce',
-        connectionId
-      )
-    }
+    // Create or update global integration with connection ID
+    await createOrUpdateGlobalIntegrationWithConnectionId(
+      userId,
+      orgId || null,
+      'salesforce',
+      connectionId
+    )
 
-    // Redirect to success page (or back to integrations dialog)
+    // Redirect to success page (or back to integrations page)
     return NextResponse.redirect(
-      new URL(`/?salesforce_connected=true&cellId=${cellId}`, request.url)
+      new URL('/?salesforce_connected=true', request.url)
     )
   } catch (error) {
     console.error('Error in Salesforce OAuth callback:', error)

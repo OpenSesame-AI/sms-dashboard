@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Cloud, CheckCircle2, XCircle, RefreshCw, Users } from "lucide-react"
+import Image from "next/image"
+import { CheckCircle2, XCircle, RefreshCw, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -16,10 +17,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 interface HubspotIntegrationProps {
-  cellId: string
+  // No props needed - global integration
 }
 
-export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
+export function HubspotIntegration({}: HubspotIntegrationProps) {
   const queryClient = useQueryClient()
 
   // Fetch connection status
@@ -31,9 +32,9 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
     autoLinked?: boolean
     needsLinking?: boolean
   }>({
-    queryKey: ["hubspot-integration", cellId],
+    queryKey: ["hubspot-integration"],
     queryFn: async () => {
-      const response = await fetch(`/api/integrations/hubspot/status?cellId=${cellId}`)
+      const response = await fetch(`/api/integrations/hubspot/status`)
       if (!response.ok) {
         // If endpoint doesn't exist yet, return disconnected status
         if (response.status === 404) {
@@ -64,7 +65,7 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
       const response = await fetch(`/api/integrations/hubspot/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cellId }),
+        body: JSON.stringify({}),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
@@ -73,12 +74,12 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
       return response.json()
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["hubspot-integration", cellId] })
+      queryClient.invalidateQueries({ queryKey: ["hubspot-integration"] })
       if (data.immediate) {
         // API Key connection - immediate success
         toast.success("Connected to HubSpot")
         // Refresh status to show connected state
-        queryClient.invalidateQueries({ queryKey: ["hubspot-integration", cellId] })
+        queryClient.invalidateQueries({ queryKey: ["hubspot-integration"] })
       } else if (data.authUrl) {
         // Redirect to OAuth URL if provided
         window.location.href = data.authUrl
@@ -99,7 +100,7 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
       const response = await fetch(`/api/integrations/hubspot/disconnect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cellId }),
+        body: JSON.stringify({}),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
@@ -108,7 +109,7 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
       return response.json()
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["hubspot-integration", cellId] })
+      queryClient.invalidateQueries({ queryKey: ["hubspot-integration"] })
       toast.success("Disconnected from HubSpot")
     },
     onError: (error) => {
@@ -124,7 +125,7 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
       const response = await fetch(`/api/integrations/hubspot/sync-contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cellId }),
+        body: JSON.stringify({}),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
@@ -133,11 +134,11 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
       return response.json()
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["hubspot-integration", cellId] })
+      queryClient.invalidateQueries({ queryKey: ["hubspot-integration"] })
       toast.success(
-        data.syncedCount
-          ? `Synced ${data.syncedCount} contacts from HubSpot`
-          : "Contacts synced successfully"
+        data.message || (data.syncedCount
+          ? `Synced ${data.syncedCount} contacts from HubSpot to ${data.cellsSynced || 1} cell${(data.cellsSynced || 1) > 1 ? 's' : ''}`
+          : "Contacts synced successfully")
       )
     },
     onError: (error) => {
@@ -152,9 +153,15 @@ export function HubspotIntegration({ cellId }: HubspotIntegrationProps) {
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-orange-100 dark:bg-orange-900/20 rounded-lg">
-              <Cloud className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-            </div>
+           
+              <Image
+                src="/HubSpot_idUw_2QApK_1.svg"
+                alt="HubSpot"
+                width={20}
+                height={20}
+                className="h-5 w-5"
+              />
+        
             <div>
               <CardTitle className="flex items-center gap-2">
                 HubSpot

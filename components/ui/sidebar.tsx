@@ -135,7 +135,7 @@ const SidebarProvider = React.forwardRef<
               ...style,
             } as React.CSSProperties
           }
-          className={cn("group/sidebar-wrapper flex min-h-svh w-full overflow-hidden has-[[data-sidebar=sidebar]]:bg-sidebar", className)}
+          className={cn("group/sidebar-wrapper flex min-h-svh w-full overflow-hidden has-[[data-sidebar=sidebar]]:bg-background", className)}
           ref={ref}
           {...props}
         >
@@ -163,7 +163,7 @@ const Sidebar = React.forwardRef<
         ref={ref}
         data-sidebar={variant}
         data-mobile={isMobile}
-        className={cn("flex h-full w-[--sidebar-width] flex-col bg-sidebar text-sidebar-foreground", className)}
+        className={cn("flex h-full w-[--sidebar-width] flex-col bg-background text-sidebar-foreground", className)}
         {...props}
       >
         {children}
@@ -178,7 +178,7 @@ const Sidebar = React.forwardRef<
           data-sidebar={variant}
           data-mobile={isMobile}
           data-state={state}
-          className="w-[--sidebar-width-mobile] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          className="w-[--sidebar-width-mobile] bg-background p-0 text-sidebar-foreground [&>button]:hidden"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -219,8 +219,8 @@ const Sidebar = React.forwardRef<
       data-state={state}
       data-mobile={isMobile}
       className={cn(
-        "group peer hidden md:block text-sidebar-foreground transition-[width,margin-left,margin-right] duration-200 ease-linear shrink-0",
-        variant === "floating" || variant === "inset" ? "bg-sidebar" : "bg-sidebar",
+        "group peer hidden md:block text-sidebar-foreground transition-[width,margin-left,margin-right] duration-200 ease-linear shrink-0 border-r",
+        variant === "floating" || variant === "inset" ? "bg-background" : "bg-background",
         className
       )}
       style={sidebarStyle}
@@ -228,7 +228,7 @@ const Sidebar = React.forwardRef<
     >
       <div
         className={cn(
-          "flex h-full flex-col bg-sidebar transition-[width] duration-200 ease-linear",
+          "flex h-full flex-col bg-background transition-[width] duration-200 ease-linear",
           collapsible === "offcanvas" && "w-[--sidebar-width]",
           collapsible === "icon" && state === "expanded" && "w-[--sidebar-width]",
           collapsible === "icon" && state === "collapsed" && "w-[--sidebar-width-icon]"

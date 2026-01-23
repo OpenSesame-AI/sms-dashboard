@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { getCellById, getIntegration, updateIntegration, getConnectionIdFromIntegration, createIntegrationWithConnectionId } from '@/lib/db/queries'
+import { getAllCells, getGlobalIntegration, updateIntegration, getConnectionIdFromIntegration, createOrUpdateGlobalIntegrationWithConnectionId } from '@/lib/db/queries'
 import { fetchContacts, extractPhoneNumbers } from '@/lib/salesforce'
 import { composio, isConnectionStatusActive } from '@/lib/composio'
 import { db } from '@/lib/db/index'
@@ -18,27 +18,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json()
-    const { cellId } = body
-
-    if (!cellId) {
-      return NextResponse.json(
-        { error: 'cellId is required' },
-        { status: 400 }
-      )
-    }
-
-    // Verify user has access to the cell
-    const cell = await getCellById(cellId, userId, orgId)
-    if (!cell) {
-      return NextResponse.json(
-        { error: 'Cell not found or access denied' },
-        { status: 404 }
-      )
-    }
-
-    // Get integration
-    let integration = await getIntegration(cellId, 'salesforce')
+    // Get global integration (no cellId required - syncs to all cells)
+    let integration = await getGlobalIntegration(userId, orgId || null, 'salesforce')
     let connectionId: string | null = null
     
     if (!integration) {
@@ -133,16 +114,17 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           )
         }
-        console.log(`[Salesforce Sync] Auto-linking Salesforce connection ${connectionId} to cell ${cellId}`)
+        console.log(`[Salesforce Sync] Auto-linking Salesforce connection ${connectionId} to global integration`)
         
-        // Auto-create the integration record
-        integration = await createIntegrationWithConnectionId(
-          cellId,
+        // Auto-create the global integration record
+        integration = await createOrUpdateGlobalIntegrationWithConnectionId(
+          userId,
+          orgId || null,
           'salesforce',
           connectionId
         )
         
-        console.log(`[Salesforce Sync] Created integration record: ${integration.id}`)
+        console.log(`[Salesforce Sync] Created global integration record: ${integration.id}`)
       } catch (error) {
         console.error('[Salesforce Sync] Error checking Composio connections:', error)
         return NextResponse.json(
@@ -193,208 +175,227 @@ export async function POST(request: NextRequest) {
       throw error
     }
 
-    // Get cell's country for phone number normalization
-    const cellCountry = cell.phoneNumber ? getCellCountry(cell.phoneNumber) : 'US'
+    // Get all cells for this user/org to sync contacts to all of them
+    const allCells = await getAllCells(userId, orgId || null)
     
-    // Sync contacts to database
-    let syncedCount = 0
-    let updatedCount = 0
+    if (allCells.length === 0) {
+      return NextResponse.json(
+        { error: 'No cells found. Please create a cell first.' },
+        { status: 400 }
+      )
+    }
+
+    // Sync contacts to database for all cells
+    let totalSyncedCount = 0
+    let totalUpdatedCount = 0
     const syncedPhoneNumbers = new Set<string>()
 
-    // First, get all existing phone numbers for this cell to check for duplicates
+    // Get all existing phone numbers for all cells to check for duplicates
+    const allCellIds = allCells.map(c => c.id)
     const existingMappings = await db
       .select()
       .from(phoneUserMappings)
-      .where(eq(phoneUserMappings.cellId, cellId))
+      .where(inArray(phoneUserMappings.cellId, allCellIds))
 
-    // Create a map of normalized phone numbers to existing records
+    // Create a map of normalized phone numbers to existing records per cell
     // Also track all mappings that normalize to the same number (for duplicate cleanup)
-    const normalizedToExisting = new Map<string, typeof existingMappings[0]>()
-    const normalizedToAllMappings = new Map<string, typeof existingMappings>()
+    const normalizedToExistingByCell = new Map<string, Map<string, typeof existingMappings[0]>>()
+    const normalizedToAllMappingsByCell = new Map<string, Map<string, typeof existingMappings>>()
+    
     for (const mapping of existingMappings) {
-      // Normalize existing phone numbers to find duplicates
-      const normalized = normalizePhoneNumber(mapping.phoneNumber, cellCountry || 'US') || mapping.phoneNumber
-      if (!normalizedToExisting.has(normalized)) {
-        normalizedToExisting.set(normalized, mapping)
+      const cellId = mapping.cellId!
+      const cell = allCells.find(c => c.id === cellId)
+      const cellCountry = cell?.phoneNumber ? (getCellCountry(cell.phoneNumber) ?? undefined) : 'US'
+      const normalized = normalizePhoneNumber(mapping.phoneNumber, cellCountry) || mapping.phoneNumber
+      
+      if (!normalizedToExistingByCell.has(cellId)) {
+        normalizedToExistingByCell.set(cellId, new Map())
       }
-      // Track all mappings for this normalized number
-      if (!normalizedToAllMappings.has(normalized)) {
-        normalizedToAllMappings.set(normalized, [])
+      if (!normalizedToAllMappingsByCell.has(cellId)) {
+        normalizedToAllMappingsByCell.set(cellId, new Map())
       }
-      normalizedToAllMappings.get(normalized)!.push(mapping)
+      
+      const cellMap = normalizedToExistingByCell.get(cellId)!
+      const cellMappingsMap = normalizedToAllMappingsByCell.get(cellId)!
+      
+      if (!cellMap.has(normalized)) {
+        cellMap.set(normalized, mapping)
+      }
+      if (!cellMappingsMap.has(normalized)) {
+        cellMappingsMap.set(normalized, [])
+      }
+      cellMappingsMap.get(normalized)!.push(mapping)
     }
 
-    for (const contact of contacts) {
-      // Extract phone numbers using cell's country as default
-      const phoneNumbers = extractPhoneNumbers(contact, cellCountry || 'US')
-      
-      for (const phoneNumber of phoneNumbers) {
-        // Ensure phone number is normalized to E.164 format
-        const normalizedPhone = normalizePhoneNumber(phoneNumber, cellCountry || 'US') || phoneNumber
+    // Sync contacts to each cell
+    for (const cell of allCells) {
+      const cellCountry = cell.phoneNumber ? (getCellCountry(cell.phoneNumber) ?? undefined) : 'US'
+      const cellMap = normalizedToExistingByCell.get(cell.id) || new Map()
+      const cellMappingsMap = normalizedToAllMappingsByCell.get(cell.id) || new Map()
+      let cellSyncedCount = 0
+      let cellUpdatedCount = 0
+
+      for (const contact of contacts) {
+        // Extract phone numbers using cell's country as default
+        const phoneNumbers = extractPhoneNumbers(contact, cellCountry)
         
-        // Skip if we've already processed this phone number
-        if (syncedPhoneNumbers.has(normalizedPhone)) {
-          continue
-        }
-        syncedPhoneNumbers.add(normalizedPhone)
-
-        // Check if a normalized version already exists
-        const existing = normalizedToExisting.get(normalizedPhone)
-
-        if (!existing) {
-          // No existing mapping with this normalized phone number - create new one
-          await db.insert(phoneUserMappings).values({
-            phoneNumber: normalizedPhone,
-            userId: cell.userId,
-            cellId: cellId,
-          })
-          syncedCount++
-          // Add to map so we don't create duplicates
-          const newMapping = await db
-            .select()
-            .from(phoneUserMappings)
-            .where(
-              and(
-                eq(phoneUserMappings.phoneNumber, normalizedPhone),
-                eq(phoneUserMappings.cellId, cellId)
-              )
-            )
-            .limit(1)
-          if (newMapping[0]) {
-            normalizedToExisting.set(normalizedPhone, newMapping[0])
+        for (const phoneNumber of phoneNumbers) {
+          // Ensure phone number is normalized to E.164 format
+          const normalizedPhone = normalizePhoneNumber(phoneNumber, cellCountry) || phoneNumber
+          
+          // Skip if we've already processed this phone number for this cell
+          const cellKey = `${cell.id}:${normalizedPhone}`
+          if (syncedPhoneNumbers.has(cellKey)) {
+            continue
           }
-          
-          // Store Salesforce contact data
-          const existingSalesforceContact = await db
-            .select()
-            .from(salesforceContacts)
-            .where(
-              and(
-                eq(salesforceContacts.phoneNumber, normalizedPhone),
-                eq(salesforceContacts.cellId, cellId)
+          syncedPhoneNumbers.add(cellKey)
+
+          // Check if a normalized version already exists for this cell
+          const existing = cellMap.get(normalizedPhone)
+
+          if (!existing) {
+            // No existing mapping with this normalized phone number - create new one
+            await db.insert(phoneUserMappings).values({
+              phoneNumber: normalizedPhone,
+              userId: cell.userId,
+              cellId: cell.id,
+            })
+            cellSyncedCount++
+            
+            // Store Salesforce contact data
+            const existingSalesforceContact = await db
+              .select()
+              .from(salesforceContacts)
+              .where(
+                and(
+                  eq(salesforceContacts.phoneNumber, normalizedPhone),
+                  eq(salesforceContacts.cellId, cell.id)
+                )
               )
-            )
-            .limit(1)
-          
-          if (existingSalesforceContact[0]) {
-            // Update existing Salesforce contact
-            await db
-              .update(salesforceContacts)
-              .set({
+              .limit(1)
+            
+            if (existingSalesforceContact[0]) {
+              // Update existing Salesforce contact
+              await db
+                .update(salesforceContacts)
+                .set({
+                  salesforceId: contact.Id,
+                  firstName: contact.FirstName || null,
+                  lastName: contact.LastName || null,
+                  email: contact.Email || null,
+                  accountId: contact.AccountId || null,
+                  accountName: contact.Account?.Name || null,
+                  updatedAt: new Date(),
+                })
+                .where(eq(salesforceContacts.id, existingSalesforceContact[0].id))
+            } else {
+              // Insert new Salesforce contact
+              await db.insert(salesforceContacts).values({
+                phoneNumber: normalizedPhone,
+                cellId: cell.id,
                 salesforceId: contact.Id,
                 firstName: contact.FirstName || null,
                 lastName: contact.LastName || null,
                 email: contact.Email || null,
                 accountId: contact.AccountId || null,
                 accountName: contact.Account?.Name || null,
-                updatedAt: new Date(),
               })
-              .where(eq(salesforceContacts.id, existingSalesforceContact[0].id))
+            }
           } else {
-            // Insert new Salesforce contact
-            await db.insert(salesforceContacts).values({
-              phoneNumber: normalizedPhone,
-              cellId: cellId,
-              salesforceId: contact.Id,
-              firstName: contact.FirstName || null,
-              lastName: contact.LastName || null,
-              email: contact.Email || null,
-              accountId: contact.AccountId || null,
-              accountName: contact.Account?.Name || null,
-            })
-          }
-        } else {
-          // Existing mapping found - check if we need to update or merge duplicates
-          const allMappings = normalizedToAllMappings.get(normalizedPhone) || []
-          
-          // If there are multiple mappings with different formats that normalize to the same number
-          if (allMappings.length > 1) {
-            // Keep the first one (oldest), delete the rest
-            const toKeep = allMappings[0]
-            const toDelete = allMappings.slice(1)
+            // Existing mapping found - check if we need to update or merge duplicates
+            const allMappings = cellMappingsMap.get(normalizedPhone) || []
             
-            // Update the one we're keeping to normalized format if needed
-            if (toKeep.phoneNumber !== normalizedPhone) {
+            // If there are multiple mappings with different formats that normalize to the same number
+            if (allMappings.length > 1) {
+              // Keep the first one (oldest), delete the rest
+              const toKeep = allMappings[0]
+              const toDelete = allMappings.slice(1)
+              
+              // Update the one we're keeping to normalized format if needed
+              if (toKeep.phoneNumber !== normalizedPhone) {
+                await db
+                  .update(phoneUserMappings)
+                  .set({ phoneNumber: normalizedPhone })
+                  .where(eq(phoneUserMappings.id, toKeep.id))
+                cellUpdatedCount++
+              }
+              
+              // Delete duplicates
+              for (const duplicate of toDelete) {
+                await db
+                  .delete(phoneUserMappings)
+                  .where(eq(phoneUserMappings.id, duplicate.id))
+                cellUpdatedCount++
+              }
+            } else if (existing.phoneNumber !== normalizedPhone) {
+              // Single mapping, just update to normalized format
               await db
                 .update(phoneUserMappings)
                 .set({ phoneNumber: normalizedPhone })
-                .where(eq(phoneUserMappings.id, toKeep.id))
-              updatedCount++
+                .where(eq(phoneUserMappings.id, existing.id))
+              cellUpdatedCount++
             }
             
-            // Delete duplicates
-            for (const duplicate of toDelete) {
-              await db
-                .delete(phoneUserMappings)
-                .where(eq(phoneUserMappings.id, duplicate.id))
-              updatedCount++
-            }
-          } else if (existing.phoneNumber !== normalizedPhone) {
-            // Single mapping, just update to normalized format
-            await db
-              .update(phoneUserMappings)
-              .set({ phoneNumber: normalizedPhone })
-              .where(eq(phoneUserMappings.id, existing.id))
-            updatedCount++
-            // Update the map
-            normalizedToExisting.set(normalizedPhone, { ...existing, phoneNumber: normalizedPhone })
-          }
-          
-          // Update Salesforce contact data
-          const existingSalesforceContact = await db
-            .select()
-            .from(salesforceContacts)
-            .where(
-              and(
-                eq(salesforceContacts.phoneNumber, normalizedPhone),
-                eq(salesforceContacts.cellId, cellId)
+            // Update Salesforce contact data
+            const existingSalesforceContact = await db
+              .select()
+              .from(salesforceContacts)
+              .where(
+                and(
+                  eq(salesforceContacts.phoneNumber, normalizedPhone),
+                  eq(salesforceContacts.cellId, cell.id)
+                )
               )
-            )
-            .limit(1)
-          
-          if (existingSalesforceContact[0]) {
-            // Update existing Salesforce contact
-            await db
-              .update(salesforceContacts)
-              .set({
+              .limit(1)
+            
+            if (existingSalesforceContact[0]) {
+              // Update existing Salesforce contact
+              await db
+                .update(salesforceContacts)
+                .set({
+                  salesforceId: contact.Id,
+                  firstName: contact.FirstName || null,
+                  lastName: contact.LastName || null,
+                  email: contact.Email || null,
+                  accountId: contact.AccountId || null,
+                  accountName: contact.Account?.Name || null,
+                  updatedAt: new Date(),
+                })
+                .where(eq(salesforceContacts.id, existingSalesforceContact[0].id))
+            } else {
+              // Insert new Salesforce contact
+              await db.insert(salesforceContacts).values({
+                phoneNumber: normalizedPhone,
+                cellId: cell.id,
                 salesforceId: contact.Id,
                 firstName: contact.FirstName || null,
                 lastName: contact.LastName || null,
                 email: contact.Email || null,
                 accountId: contact.AccountId || null,
                 accountName: contact.Account?.Name || null,
-                updatedAt: new Date(),
               })
-              .where(eq(salesforceContacts.id, existingSalesforceContact[0].id))
-          } else {
-            // Insert new Salesforce contact
-            await db.insert(salesforceContacts).values({
-              phoneNumber: normalizedPhone,
-              cellId: cellId,
-              salesforceId: contact.Id,
-              firstName: contact.FirstName || null,
-              lastName: contact.LastName || null,
-              email: contact.Email || null,
-              accountId: contact.AccountId || null,
-              accountName: contact.Account?.Name || null,
-            })
+            }
           }
         }
       }
+      
+      totalSyncedCount += cellSyncedCount
+      totalUpdatedCount += cellUpdatedCount
     }
 
     // Update integration with sync timestamp and count
     await updateIntegration(integration.id, {
       lastSyncedAt: new Date(),
-      syncedContactsCount: syncedCount,
+      syncedContactsCount: totalSyncedCount,
     })
 
     return NextResponse.json({
       success: true,
-      syncedCount,
-      updatedCount,
+      syncedCount: totalSyncedCount,
+      updatedCount: totalUpdatedCount,
       totalContacts: contacts.length,
-      message: `Synced ${syncedCount} new contacts${updatedCount > 0 ? ` and updated ${updatedCount} existing contacts` : ''} from Salesforce`,
+      cellsSynced: allCells.length,
+      message: `Synced ${totalSyncedCount} new contacts${totalUpdatedCount > 0 ? ` and updated ${totalUpdatedCount} existing contacts` : ''} from Salesforce to ${allCells.length} cell${allCells.length > 1 ? 's' : ''}`,
     })
   } catch (error) {
     console.error('Error syncing contacts:', error)

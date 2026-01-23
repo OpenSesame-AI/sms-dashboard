@@ -171,9 +171,11 @@ export async function GET(request: NextRequest) {
             if (isActive && firstConnection.id) {
               try {
                 await createIntegrationWithConnectionId(
+                  userId,
                   cellId,
                   'hubspot',
-                  firstConnection.id
+                  firstConnection.id,
+                  orgId || null
                 )
                 console.log(`[HubSpot Status] Auto-linked HubSpot connection ${firstConnection.id} to cell ${cellId}`)
                 

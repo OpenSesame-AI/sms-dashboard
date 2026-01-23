@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Table2, Pencil, Plus, X } from "lucide-react"
+import { Table2, Plus, ChevronDown } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -33,15 +33,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { OnboardingDialog } from "./onboarding-dialog"
 import { useOrganization } from "@clerk/nextjs"
+import { useRouter } from "next/navigation"
 
 export function TableSelector() {
   const { selectedCell, setSelectedCell } = useCell()
   const queryClient = useQueryClient()
   const { organization } = useOrganization()
+  const router = useRouter()
   
-  const [isRenameDialogOpen, setIsRenameDialogOpen] = React.useState(false)
-  const [renameValue, setRenameValue] = React.useState("")
-  const [cellToRename, setCellToRename] = React.useState<Cell | null>(null)
   const [isAddCellDialogOpen, setIsAddCellDialogOpen] = React.useState(false)
   const [isOnboardingOpen, setIsOnboardingOpen] = React.useState(false)
   const [newCellName, setNewCellName] = React.useState("")
@@ -169,81 +168,6 @@ export function TableSelector() {
     },
   })
 
-  // Update cell mutation
-  const updateCellMutation = useMutation({
-    mutationFn: async (data: { id: string; name: string; phoneNumber?: string }) => {
-      const response = await fetch('/api/cells', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to update cell')
-      }
-      return response.json()
-    },
-    onSuccess: (updatedCell) => {
-      queryClient.invalidateQueries({ queryKey: ['cells'] })
-      if (selectedCell?.id === updatedCell.id) {
-        setSelectedCell(updatedCell)
-      }
-      setIsRenameDialogOpen(false)
-      setCellToRename(null)
-      setRenameValue("")
-      toast.success("Cell updated", {
-        description: `${updatedCell.name} has been updated`,
-      })
-    },
-    onError: (error) => {
-      toast.error("Failed to update cell", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
-    },
-  })
-
-  // Delete cell mutation
-  const deleteCellMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await fetch(`/api/cells?id=${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      })
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to delete cell')
-      }
-      return response.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cells'] })
-      if (selectedCell && cellToRename?.id === selectedCell.id) {
-        setSelectedCell(null)
-      }
-      toast.success("Cell deleted")
-    },
-    onError: (error) => {
-      toast.error("Failed to delete cell", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
-    },
-  })
-
-  const handleRenameClick = (cell: Cell, e?: React.MouseEvent) => {
-    e?.stopPropagation()
-    e?.preventDefault()
-    setCellToRename(cell)
-    setRenameValue(cell.name)
-    setIsRenameDialogOpen(true)
-  }
-
-  const handleRename = () => {
-    if (!cellToRename || !renameValue.trim()) return
-    updateCellMutation.mutate({
-      id: cellToRename.id,
-      name: renameValue.trim(),
-    })
-  }
-
   const handleAddCell = () => {
     if (!newCellName.trim()) {
       toast.error("Missing required fields", {
@@ -255,14 +179,6 @@ export function TableSelector() {
       name: newCellName.trim(),
       country: newCellCountry,
     })
-  }
-
-  const handleDeleteCell = (cell: Cell, e?: React.MouseEvent) => {
-    e?.stopPropagation()
-    e?.preventDefault()
-    if (confirm(`Are you sure you want to delete "${cell.name}"?`)) {
-      deleteCellMutation.mutate(cell.id)
-    }
   }
 
   const handleDialogClose = (open: boolean) => {
@@ -292,88 +208,29 @@ export function TableSelector() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="w-[180px] h-8 justify-start gap-2" disabled={isLoading}>
-            <Table2 className="h-4 w-4" />
-            <span className="flex-1 text-left">{selectedCellLabel}</span>
+          <Button variant="outline" className="h-8 justify-start gap-2" disabled={isLoading}>
+            <Table2 className="h-4 w-4 shrink-0" />
+            <span className="text-left truncate">{selectedCellLabel}</span>
+            <ChevronDown className="h-4 w-4 shrink-0" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[180px]">
           {cells.map((cell) => (
-            <div key={cell.id} className="group">
-              <DropdownMenuItem
-                onClick={() => setSelectedCell(cell)}
-                className="flex items-center justify-between"
-              >
-                <span>{cell.name}</span>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={(e) => handleRenameClick(cell, e)}
-                  >
-                    <Pencil className="h-3 w-3" />
-                    <span className="sr-only">Rename {cell.name}</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={(e) => handleDeleteCell(cell, e)}
-                  >
-                    <X className="h-3 w-3" />
-                    <span className="sr-only">Delete {cell.name}</span>
-                  </Button>
-                </div>
-              </DropdownMenuItem>
-            </div>
+            <DropdownMenuItem
+              key={cell.id}
+              onClick={() => setSelectedCell(cell)}
+              className="cursor-pointer"
+            >
+              <span>{cell.name}</span>
+            </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setIsAddCellDialogOpen(true)}>
+          <DropdownMenuItem onClick={() => router.push("/create")} className="cursor-pointer">
             <Plus className="mr-2 h-4 w-4" />
             Add Cell
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Cell</DialogTitle>
-            <DialogDescription>
-              Enter a new name for this cell.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="cell-name">Cell Name</Label>
-              <Input
-                id="cell-name"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                placeholder="Enter cell name"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleRename()
-                  }
-                }}
-                autoFocus
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRenameDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleRename} 
-              disabled={!renameValue.trim() || updateCellMutation.isPending}
-            >
-              {updateCellMutation.isPending ? "Saving..." : "Rename"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={isAddCellDialogOpen} onOpenChange={handleDialogClose}>
         <DialogContent>

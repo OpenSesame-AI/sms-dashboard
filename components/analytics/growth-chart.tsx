@@ -53,9 +53,9 @@ export function GrowthChart({ data }: GrowthChartProps) {
             <Line
               type="monotone"
               dataKey="count"
-              stroke="var(--chart-5)"
+              stroke="var(--primary)"
               strokeWidth={2}
-              dot={{ fill: 'var(--chart-5)', r: 4 }}
+              dot={{ fill: 'var(--primary)', r: 4 }}
               activeDot={{ r: 6 }}
             />
           </LineChart>

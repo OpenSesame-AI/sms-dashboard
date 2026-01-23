@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { randomBytes } from 'crypto'
-import { getCellById } from '@/lib/db/queries'
 import { getOrCreateSalesforceAuthConfig, initiateSalesforceConnection } from '@/lib/composio'
+import { createOrUpdateGlobalIntegrationWithConnectionId } from '@/lib/db/queries'
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,32 +14,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json()
-    const { cellId } = body
-
-    if (!cellId) {
-      return NextResponse.json(
-        { error: 'cellId is required' },
-        { status: 400 }
-      )
-    }
-
-    // Verify user has access to the cell
-    const cell = await getCellById(cellId, userId, orgId)
-    if (!cell) {
-      return NextResponse.json(
-        { error: 'Cell not found or access denied' },
-        { status: 404 }
-      )
-    }
+    // No longer require cellId - this is now a global integration
 
     // Get or create Salesforce auth config
     const authConfigId = await getOrCreateSalesforceAuthConfig()
 
     // Generate secure state parameter for callback verification
-    // State format: base64(cellId:randomBytes)
     const randomState = randomBytes(16).toString('base64')
-    const state = Buffer.from(`${cellId}:${randomState}`).toString('base64')
 
     // Initiate Composio connection
     // Use userId as the user identifier for Composio
@@ -49,10 +30,10 @@ export async function POST(request: NextRequest) {
     )
 
     // Store connection request ID in state for callback verification
-    // We'll encode it in the state parameter along with cellId
     const stateWithRequestId = Buffer.from(
       JSON.stringify({
-        cellId,
+        userId,
+        orgId: orgId || null,
         connectionRequestId,
         randomState,
       })

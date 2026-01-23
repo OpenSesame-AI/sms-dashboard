@@ -133,9 +133,11 @@ export async function POST(request: NextRequest) {
         
         // Auto-create the integration record
         integration = await createIntegrationWithConnectionId(
+          userId,
           cellId,
           'hubspot',
-          connectionId
+          connectionId,
+          orgId || null
         )
         
         console.log(`[HubSpot Sync] Created integration record: ${integration.id}`)

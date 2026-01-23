@@ -38,8 +38,8 @@ export function IntegrationsDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
-          <SalesforceIntegration cellId={cellId} />
-          <HubspotIntegration cellId={cellId} />
+          <SalesforceIntegration />
+          <HubspotIntegration />
         </div>
       </DialogContent>
     </Dialog>

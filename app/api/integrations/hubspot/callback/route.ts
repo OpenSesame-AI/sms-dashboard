@@ -159,9 +159,11 @@ export async function GET(request: NextRequest) {
     } else {
       // Create new integration with connection ID
       await createIntegrationWithConnectionId(
+        userId,
         cellId,
         'hubspot',
-        connectionId
+        connectionId,
+        orgId || null
       )
     }
 
