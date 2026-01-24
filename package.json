@@ -24,7 +24,8 @@
     "migrate:salesforce-contacts": "tsx scripts/apply-salesforce-contacts-table.ts",
     "migrate:hubspot-contacts": "tsx scripts/apply-hubspot-contacts-table.ts",
     "migrate:column-visibility": "tsx scripts/apply-column-visibility-table.ts",
-    "migrate:api-keys": "tsx scripts/apply-api-keys-table.ts"
+    "migrate:api-keys": "tsx scripts/apply-api-keys-table.ts",
+    "migrate:user-id-to-integrations": "tsx scripts/apply-user-id-to-integrations.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",
@@ -57,6 +58,7 @@
     "react": "19.2.3",
     "react-country-flag": "^3.1.0",
     "react-dom": "19.2.3",
+    "react-resizable-panels": "^2.1.9",
     "recharts": "^3.6.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",

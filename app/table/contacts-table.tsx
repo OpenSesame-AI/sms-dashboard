@@ -17,6 +17,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { ButtonGroup } from "@/components/ui/button-group"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -65,13 +66,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -1376,9 +1374,8 @@ export function ContactsTable<TData, TValue>({
   const [isStartConversationDialogOpen, setIsStartConversationDialogOpen] = React.useState(false)
   const [conversationPhoneNumber, setConversationPhoneNumber] = React.useState("")
   const [conversationMessage, setConversationMessage] = React.useState("Hello! I'd like to start a conversation with you.")
-  // Message sheet state (for message icon click)
-  const [isMessageSheetOpen, setIsMessageSheetOpen] = React.useState(false)
-  const [sheetPhoneNumber, setSheetPhoneNumber] = React.useState("")
+  // Conversation panel state (for message icon click)
+  const [selectedConversationPhoneNumber, setSelectedConversationPhoneNumber] = React.useState<string | null>(null)
   const [sheetMessage, setSheetMessage] = React.useState("")
   
   // Mock conversation messages - in a real app, this would come from an API
@@ -1435,12 +1432,12 @@ export function ContactsTable<TData, TValue>({
     }
   }, [])
 
-  // Fetch conversations when sheet opens with a phone number
+  // Fetch conversations when conversation panel opens with a phone number
   React.useEffect(() => {
-    if (isMessageSheetOpen && sheetPhoneNumber && selectedCell) {
+    if (selectedConversationPhoneNumber && selectedCell) {
       const url = selectedCell.id
-        ? `/api/conversations?phoneNumber=${encodeURIComponent(sheetPhoneNumber)}&cellId=${encodeURIComponent(selectedCell.id)}`
-        : `/api/conversations?phoneNumber=${encodeURIComponent(sheetPhoneNumber)}`
+        ? `/api/conversations?phoneNumber=${encodeURIComponent(selectedConversationPhoneNumber)}&cellId=${encodeURIComponent(selectedCell.id)}`
+        : `/api/conversations?phoneNumber=${encodeURIComponent(selectedConversationPhoneNumber)}`
       
       console.log('Fetching conversations from:', url)
       
@@ -1459,15 +1456,15 @@ export function ContactsTable<TData, TValue>({
           console.error('Error fetching conversations:', error)
           setConversationMessages([])
         })
-    } else if (!isMessageSheetOpen) {
-      // Clear messages when sheet closes
+    } else if (!selectedConversationPhoneNumber) {
+      // Clear messages when conversation panel closes
       setConversationMessages([])
     }
-  }, [isMessageSheetOpen, sheetPhoneNumber, selectedCell])
+  }, [selectedConversationPhoneNumber, selectedCell])
 
-  // Scroll to bottom when sheet opens or messages change
+  // Scroll to bottom when conversation panel opens or messages change
   React.useEffect(() => {
-    if (isMessageSheetOpen && messageAreaRef.current) {
+    if (selectedConversationPhoneNumber && messageAreaRef.current) {
       // Use setTimeout to ensure DOM has updated
       setTimeout(() => {
         if (messageAreaRef.current) {
@@ -1475,7 +1472,7 @@ export function ContactsTable<TData, TValue>({
         }
       }, 100)
     }
-  }, [isMessageSheetOpen, conversationMessages])
+  }, [selectedConversationPhoneNumber, conversationMessages])
 
   // Load AI columns and results on mount
   React.useEffect(() => {
@@ -1901,8 +1898,7 @@ export function ContactsTable<TData, TValue>({
   }
 
   const handleOpenMessageSheet = async (phoneNumber: string) => {
-    setSheetPhoneNumber(phoneNumber)
-    setIsMessageSheetOpen(true)
+    setSelectedConversationPhoneNumber(phoneNumber)
     
     // Mark this contact as seen in the database
     const contact = contactsData.find((c) => c.phoneNumber === phoneNumber)
@@ -1934,11 +1930,11 @@ export function ContactsTable<TData, TValue>({
       }
     }
     
-    // Conversations will be fetched by useEffect when sheet opens
+    // Conversations will be fetched by useEffect when conversation panel opens
   }
 
   const handleSendSheetMessage = async () => {
-    const phoneNumber = String(sheetPhoneNumber || "")
+    const phoneNumber = String(selectedConversationPhoneNumber || "")
     const message = String(sheetMessage || "").trim()
     
     if (!message || !phoneNumber) return
@@ -2639,9 +2635,11 @@ export function ContactsTable<TData, TValue>({
   }
 
   return (
-    <div className="space-y-4">
+    <ResizablePanelGroup direction="horizontal" className="h-full -mx-4">
+      <ResizablePanel defaultSize={70} minSize={30}>
+        <div className={`space-y-1 h-full flex flex-col overflow-hidden ${!selectedConversationPhoneNumber ? 'pr-4' : ''}`}>
       {/* Phone Number Search Bar and Action Buttons */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 mx-4 mt-4">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -2662,7 +2660,7 @@ export function ContactsTable<TData, TValue>({
             </Button>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <ButtonGroup>
           {selectedCell && (
             <ShareButton 
               cellId={selectedCell.id} 
@@ -2685,136 +2683,10 @@ export function ContactsTable<TData, TValue>({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" size="sm" onClick={() => handleStartConversation()}>
-            <Plus className="h-4 w-4" />
-            Start conversation
-          </Button>
-          <Dialog open={isAddColumnDialogOpen} onOpenChange={setIsAddColumnDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <WandSparkles className="h-4 w-4" />
-                Add analysis
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Analysis</DialogTitle>
-                <DialogDescription>
-                  Add a new AI analysis column to the table. Describe what the AI should check or analyze.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="column-name">Column Name</Label>
-                  <Input
-                    id="column-name"
-                    placeholder="e.g., Sentiment Analysis"
-                    value={newColumnName}
-                    onChange={(e) => setNewColumnName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-description">What should the AI check?</Label>
-                  <Textarea
-                    id="ai-description"
-                    placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
-                    value={aiDescription}
-                    onChange={(e) => setAiDescription(e.target.value)}
-                    rows={4}
-                    className="resize-none"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="submit"
-                  onClick={handleAddColumn}
-                  disabled={!newColumnName.trim() || !aiDescription.trim()}
-                >
-                  Add AI Analysis
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Dialog open={isAddAlertDialogOpen} onOpenChange={setIsAddAlertDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Bell className="h-4 w-4" />
-                Add Alert
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Alert</DialogTitle>
-                <DialogDescription>
-                  Create a new alert that will notify you when specific conditions are met in incoming messages.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-name">Alert Name</Label>
-                  <Input
-                    id="alert-name"
-                    placeholder="e.g., Urgent Request"
-                    value={newAlertName}
-                    onChange={(e) => setNewAlertName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-type">Alert Type</Label>
-                  <Select value={newAlertType} onValueChange={(value: 'ai' | 'keyword') => setNewAlertType(value)}>
-                    <SelectTrigger id="alert-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="keyword">Keyword Match</SelectItem>
-                      <SelectItem value="ai">AI Evaluation</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-condition">
-                    {newAlertType === 'keyword' ? 'Keywords (comma-separated)' : 'AI Condition'}
-                  </Label>
-                  <Textarea
-                    id="alert-condition"
-                    placeholder={
-                      newAlertType === 'keyword'
-                        ? 'e.g., urgent, emergency, help'
-                        : 'e.g., Check if the message indicates an urgent request or emergency situation'
-                    }
-                    value={newAlertCondition}
-                    onChange={(e) => setNewAlertCondition(e.target.value)}
-                    rows={4}
-                    className="resize-none"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsAddAlertDialogOpen(false)
-                    setNewAlertName("")
-                    setNewAlertCondition("")
-                    setNewAlertType("keyword")
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleAddAlert}
-                  disabled={!newAlertName.trim() || !newAlertCondition.trim() || !selectedCell?.id}
-                >
-                  Add Alert
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+        </ButtonGroup>
       </div>
 
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 mx-4">
             <div className="flex items-center gap-2">
               <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
                 <PopoverTrigger asChild>
@@ -3029,6 +2901,132 @@ export function ContactsTable<TData, TValue>({
               <DataTableViewOptions table={table} />
             </div>
             <div className="flex items-center gap-2 h-9">
+              <Button variant="outline" size="sm" onClick={() => handleStartConversation()}>
+                <Plus className="h-4 w-4" />
+                Start conversation
+              </Button>
+              <Dialog open={isAddColumnDialogOpen} onOpenChange={setIsAddColumnDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <WandSparkles className="h-4 w-4" />
+                    Add analysis
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Analysis</DialogTitle>
+                    <DialogDescription>
+                      Add a new AI analysis column to the table. Describe what the AI should check or analyze.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="column-name">Column Name</Label>
+                      <Input
+                        id="column-name"
+                        placeholder="e.g., Sentiment Analysis"
+                        value={newColumnName}
+                        onChange={(e) => setNewColumnName(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="ai-description">What should the AI check?</Label>
+                      <Textarea
+                        id="ai-description"
+                        placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
+                        value={aiDescription}
+                        onChange={(e) => setAiDescription(e.target.value)}
+                        rows={4}
+                        className="resize-none"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      type="submit"
+                      onClick={handleAddColumn}
+                      disabled={!newColumnName.trim() || !aiDescription.trim()}
+                    >
+                      Add AI Analysis
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={isAddAlertDialogOpen} onOpenChange={setIsAddAlertDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Bell className="h-4 w-4" />
+                    Add Alert
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Alert</DialogTitle>
+                    <DialogDescription>
+                      Create a new alert that will notify you when specific conditions are met in incoming messages.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="alert-name">Alert Name</Label>
+                      <Input
+                        id="alert-name"
+                        placeholder="e.g., Urgent Request"
+                        value={newAlertName}
+                        onChange={(e) => setNewAlertName(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="alert-type">Alert Type</Label>
+                      <Select value={newAlertType} onValueChange={(value: 'ai' | 'keyword') => setNewAlertType(value)}>
+                        <SelectTrigger id="alert-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keyword">Keyword Match</SelectItem>
+                          <SelectItem value="ai">AI Evaluation</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="alert-condition">
+                        {newAlertType === 'keyword' ? 'Keywords (comma-separated)' : 'AI Condition'}
+                      </Label>
+                      <Textarea
+                        id="alert-condition"
+                        placeholder={
+                          newAlertType === 'keyword'
+                            ? 'e.g., urgent, emergency, help'
+                            : 'e.g., Check if the message indicates an urgent request or emergency situation'
+                        }
+                        value={newAlertCondition}
+                        onChange={(e) => setNewAlertCondition(e.target.value)}
+                        rows={4}
+                        className="resize-none"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsAddAlertDialogOpen(false)
+                        setNewAlertName("")
+                        setNewAlertCondition("")
+                        setNewAlertType("keyword")
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleAddAlert}
+                      disabled={!newAlertName.trim() || !newAlertCondition.trim() || !selectedCell?.id}
+                    >
+                      Add Alert
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
               {selectedCount > 0 ? (
                 <>
                   <Button size="sm" onClick={handleBroadcast}>
@@ -3140,7 +3138,7 @@ export function ContactsTable<TData, TValue>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div ref={tableContainerRef} className="overflow-auto rounded-md border max-h-[calc(100vh-200px)] [&_[data-slot=table-container]]:overflow-visible">
+      <div ref={tableContainerRef} className="overflow-auto rounded-md border flex-1 min-h-0 mx-4 mb-4 [&_[data-slot=table-container]]:overflow-visible">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -3824,88 +3822,102 @@ export function ContactsTable<TData, TValue>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Sheet open={isMessageSheetOpen} onOpenChange={setIsMessageSheetOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
-          <div className="border-b p-4">
-            <SheetHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <SheetTitle>Conversation</SheetTitle>
-                  <SheetDescription>
-                    Thread for {sheetPhoneNumber || "this contact"}
-                  </SheetDescription>
-                </div>
-              </div>
-            </SheetHeader>
-          </div>
-          
-          {/* Message area */}
-          <div ref={messageAreaRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-            {conversationMessages.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                <p className="text-sm mb-2">No messages yet</p>
-                <p className="text-xs">Start the conversation by sending a message below</p>
-              </div>
-            ) : (
-              <>
-                <div className="text-xs text-muted-foreground text-center mb-4">
-                  Inbound (customer) on the left • Outbound (you) on the right
-                </div>
-                {conversationMessages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.isInbound ? "justify-start" : "justify-end"}`}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                        msg.isInbound
-                          ? "bg-muted"
-                          : "bg-primary text-primary-foreground"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm flex-1">{msg.text}</p>
-                      </div>
-                      <p className={`text-xs mt-1 ${
-                        msg.isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
-                      }`}>
-                        {msg.timestamp}
-                      </p>
-                    </div>
+        </div>
+      </ResizablePanel>
+      {selectedConversationPhoneNumber && (
+        <>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={30} minSize={0}>
+            <div className="flex flex-col h-full border-l bg-background">
+              <div className="border-b p-4 pr-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">Conversation</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Thread for {selectedConversationPhoneNumber}
+                    </p>
                   </div>
-                ))}
-              </>
-            )}
-          </div>
-          
-          {/* Input area */}
-          <div className="border-t p-4">
-            <div className="flex gap-2">
-              <Textarea
-                placeholder="Type your message here..."
-                value={sheetMessage}
-                onChange={(e) => setSheetMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSendSheetMessage()
-                  }
-                }}
-                rows={3}
-                className="resize-none flex-1"
-              />
-              <Button
-                onClick={handleSendSheetMessage}
-                disabled={!sheetMessage.trim()}
-                className="self-end"
-              >
-                Send
-              </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setSelectedConversationPhoneNumber(null)}
+                    className="h-8 w-8"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Close conversation</span>
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Message area */}
+              <div ref={messageAreaRef} className="flex-1 overflow-y-auto p-4 pr-8 space-y-4">
+                {conversationMessages.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-8">
+                    <p className="text-sm mb-2">No messages yet</p>
+                    <p className="text-xs">Start the conversation by sending a message below</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-xs text-muted-foreground text-center mb-4">
+                      Inbound (customer) on the left • Outbound (you) on the right
+                    </div>
+                    {conversationMessages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.isInbound ? "justify-start" : "justify-end"}`}
+                      >
+                        <div
+                          className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                            msg.isInbound
+                              ? "bg-muted"
+                              : "bg-primary text-primary-foreground"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm flex-1">{msg.text}</p>
+                          </div>
+                          <p className={`text-xs mt-1 ${
+                            msg.isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
+                          }`}>
+                            {msg.timestamp}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+              
+              {/* Input area */}
+              <div className="border-t p-4 pr-8">
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder="Type your message here..."
+                    value={sheetMessage}
+                    onChange={(e) => setSheetMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSendSheetMessage()
+                      }
+                    }}
+                    rows={3}
+                    className="resize-none flex-1"
+                  />
+                  <Button
+                    onClick={handleSendSheetMessage}
+                    disabled={!sheetMessage.trim()}
+                    className="self-end"
+                  >
+                    Send
+                  </Button>
+                </div>
+              </div>
             </div>
-          </div>
-        </SheetContent>
-      </Sheet>
-    </div>
+          </ResizablePanel>
+        </>
+      )}
+    </ResizablePanelGroup>
   )
 }
 

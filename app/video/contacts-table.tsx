@@ -17,6 +17,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { ButtonGroup } from "@/components/ui/button-group"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -2638,9 +2639,9 @@ export function ContactsTable<TData, TValue>({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-1">
       {/* Phone Number Search Bar and Action Buttons */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 mx-4 mt-4">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -2663,152 +2664,28 @@ export function ContactsTable<TData, TValue>({
         </div>
         <div className="flex items-center gap-2">
           <DataTableViewOptions table={table} />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4" />
-                Export
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={exportToCSV}>
-                Export to CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={exportToExcel}>
-                Export to Excel
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button variant="outline" size="sm" onClick={() => handleStartConversation()}>
-            <Plus className="h-4 w-4" />
-            Start conversation
-          </Button>
-          <Dialog open={isAddColumnDialogOpen} onOpenChange={setIsAddColumnDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <WandSparkles className="h-4 w-4" />
-                Add analysis
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Analysis</DialogTitle>
-                <DialogDescription>
-                  Add a new AI analysis column to the table. Describe what the AI should check or analyze.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="column-name">Column Name</Label>
-                  <Input
-                    id="column-name"
-                    placeholder="e.g., Sentiment Analysis"
-                    value={newColumnName}
-                    onChange={(e) => setNewColumnName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-description">What should the AI check?</Label>
-                  <Textarea
-                    id="ai-description"
-                    placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
-                    value={aiDescription}
-                    onChange={(e) => setAiDescription(e.target.value)}
-                    rows={4}
-                    className="resize-none"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="submit"
-                  onClick={handleAddColumn}
-                  disabled={!newColumnName.trim() || !aiDescription.trim()}
-                >
-                  Add AI Analysis
+          <ButtonGroup>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Download className="h-4 w-4" />
+                  Export
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Dialog open={isAddAlertDialogOpen} onOpenChange={setIsAddAlertDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Bell className="h-4 w-4" />
-                Add Alert
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Alert</DialogTitle>
-                <DialogDescription>
-                  Create a new alert that will notify you when specific conditions are met in incoming messages.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-name">Alert Name</Label>
-                  <Input
-                    id="alert-name"
-                    placeholder="e.g., Urgent Request"
-                    value={newAlertName}
-                    onChange={(e) => setNewAlertName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-type">Alert Type</Label>
-                  <Select value={newAlertType} onValueChange={(value: 'ai' | 'keyword') => setNewAlertType(value)}>
-                    <SelectTrigger id="alert-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="keyword">Keyword Match</SelectItem>
-                      <SelectItem value="ai">AI Evaluation</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="alert-condition">
-                    {newAlertType === 'keyword' ? 'Keywords (comma-separated)' : 'AI Condition'}
-                  </Label>
-                  <Textarea
-                    id="alert-condition"
-                    placeholder={
-                      newAlertType === 'keyword'
-                        ? 'e.g., urgent, emergency, help'
-                        : 'e.g., Check if the message indicates an urgent request or emergency situation'
-                    }
-                    value={newAlertCondition}
-                    onChange={(e) => setNewAlertCondition(e.target.value)}
-                    rows={4}
-                    className="resize-none"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsAddAlertDialogOpen(false)
-                    setNewAlertName("")
-                    setNewAlertCondition("")
-                    setNewAlertType("keyword")
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleAddAlert}
-                  disabled={!newAlertName.trim() || !newAlertCondition.trim() || !selectedCell?.id}
-                >
-                  Add Alert
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={exportToCSV}>
+                  Export to CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportToExcel}>
+                  Export to Excel
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ButtonGroup>
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 mx-4">
             <div className="flex items-center gap-2">
               <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
                 <PopoverTrigger asChild>
@@ -3022,6 +2899,132 @@ export function ContactsTable<TData, TValue>({
               </Popover>
             </div>
             <div className="flex items-center gap-2 h-9">
+              <Button variant="outline" size="sm" onClick={() => handleStartConversation()}>
+                <Plus className="h-4 w-4" />
+                Start conversation
+              </Button>
+              <Dialog open={isAddColumnDialogOpen} onOpenChange={setIsAddColumnDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <WandSparkles className="h-4 w-4" />
+                    Add analysis
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Analysis</DialogTitle>
+                    <DialogDescription>
+                      Add a new AI analysis column to the table. Describe what the AI should check or analyze.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="column-name">Column Name</Label>
+                      <Input
+                        id="column-name"
+                        placeholder="e.g., Sentiment Analysis"
+                        value={newColumnName}
+                        onChange={(e) => setNewColumnName(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="ai-description">What should the AI check?</Label>
+                      <Textarea
+                        id="ai-description"
+                        placeholder="e.g., Analyze the sentiment of the last message and determine if it's positive, negative, or neutral"
+                        value={aiDescription}
+                        onChange={(e) => setAiDescription(e.target.value)}
+                        rows={4}
+                        className="resize-none"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      type="submit"
+                      onClick={handleAddColumn}
+                      disabled={!newColumnName.trim() || !aiDescription.trim()}
+                    >
+                      Add AI Analysis
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={isAddAlertDialogOpen} onOpenChange={setIsAddAlertDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Bell className="h-4 w-4" />
+                    Add Alert
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Alert</DialogTitle>
+                    <DialogDescription>
+                      Create a new alert that will notify you when specific conditions are met in incoming messages.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="alert-name">Alert Name</Label>
+                      <Input
+                        id="alert-name"
+                        placeholder="e.g., Urgent Request"
+                        value={newAlertName}
+                        onChange={(e) => setNewAlertName(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="alert-type">Alert Type</Label>
+                      <Select value={newAlertType} onValueChange={(value: 'ai' | 'keyword') => setNewAlertType(value)}>
+                        <SelectTrigger id="alert-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keyword">Keyword Match</SelectItem>
+                          <SelectItem value="ai">AI Evaluation</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="alert-condition">
+                        {newAlertType === 'keyword' ? 'Keywords (comma-separated)' : 'AI Condition'}
+                      </Label>
+                      <Textarea
+                        id="alert-condition"
+                        placeholder={
+                          newAlertType === 'keyword'
+                            ? 'e.g., urgent, emergency, help'
+                            : 'e.g., Check if the message indicates an urgent request or emergency situation'
+                        }
+                        value={newAlertCondition}
+                        onChange={(e) => setNewAlertCondition(e.target.value)}
+                        rows={4}
+                        className="resize-none"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsAddAlertDialogOpen(false)
+                        setNewAlertName("")
+                        setNewAlertCondition("")
+                        setNewAlertType("keyword")
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleAddAlert}
+                      disabled={!newAlertName.trim() || !newAlertCondition.trim() || !selectedCell?.id}
+                    >
+                      Add Alert
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
               {selectedCount > 0 ? (
                 <>
                   <Button size="sm" onClick={handleBroadcast}>
@@ -3133,7 +3136,7 @@ export function ContactsTable<TData, TValue>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div ref={tableContainerRef} className="overflow-auto rounded-md border max-h-[calc(100vh-200px)] [&_[data-slot=table-container]]:overflow-visible">
+      <div ref={tableContainerRef} className="overflow-auto rounded-md border max-h-[calc(100vh-200px)] mx-4 mb-4 [&_[data-slot=table-container]]:overflow-visible">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -3819,7 +3822,7 @@ export function ContactsTable<TData, TValue>({
       </Dialog>
       <Sheet open={isMessageSheetOpen} onOpenChange={setIsMessageSheetOpen}>
         <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
-          <div className="border-b p-4">
+          <div className="border-b p-4 pr-8">
             <SheetHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -3833,7 +3836,7 @@ export function ContactsTable<TData, TValue>({
           </div>
           
           {/* Message area */}
-          <div ref={messageAreaRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div ref={messageAreaRef} className="flex-1 overflow-y-auto p-4 pr-8 space-y-4">
             {conversationMessages.length === 0 ? (
               <div className="text-center text-muted-foreground py-8">
                 <p className="text-sm mb-2">No messages yet</p>
@@ -3872,7 +3875,7 @@ export function ContactsTable<TData, TValue>({
           </div>
           
           {/* Input area */}
-          <div className="border-t p-4">
+          <div className="border-t p-4 pr-8">
             <div className="flex gap-2">
               <Textarea
                 placeholder="Type your message here..."

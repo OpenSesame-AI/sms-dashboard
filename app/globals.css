@@ -149,6 +149,23 @@
   color: var(--foreground);
 }
 
+/* Remove border from OrganizationSwitcher trigger button */
+.cl-organizationSwitcherTrigger,
+.cl-organizationSwitcherTrigger__personal,
+.cl-organizationSwitcherTrigger button,
+.cl-organizationSwitcherTrigger__personal button,
+.cl-organizationSwitcherTrigger [data-variant="outline"],
+.cl-organizationSwitcherTrigger__personal [data-variant="outline"] {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Target button within breadcrumb that contains OrganizationSwitcher */
+nav ol li button[data-variant="outline"][aria-haspopup="menu"] {
+  border: none !important;
+  box-shadow: none !important;
+}
+
 .dark .cl-userPreview,
 .dark .cl-userPreview__personalWorkspace {
   color: var(--foreground);
