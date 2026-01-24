@@ -2685,7 +2685,7 @@ export function ContactsTable<TData, TValue>({
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 mx-4">
+      <div className="flex items-center justify-between gap-2 mx-4 flex-wrap">
             <div className="flex items-center gap-2">
               <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
                 <PopoverTrigger asChild>

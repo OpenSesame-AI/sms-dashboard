@@ -2686,7 +2686,7 @@ export function ContactsTable<TData, TValue>({
         </ButtonGroup>
       </div>
 
-      <div className="flex items-center justify-between gap-2 mx-4">
+      <div className="flex items-center justify-between gap-2 mx-4 flex-wrap">
             <div className="flex items-center gap-2">
               <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
                 <PopoverTrigger asChild>
@@ -3138,7 +3138,7 @@ export function ContactsTable<TData, TValue>({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div ref={tableContainerRef} className="overflow-auto rounded-md border flex-1 min-h-0 mx-4 mb-4 [&_[data-slot=table-container]]:overflow-visible">
+      <div ref={tableContainerRef} className="overflow-auto rounded-md border max-h-full mx-4 mb-4 [&_[data-slot=table-container]]:overflow-visible">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -3827,7 +3827,7 @@ export function ContactsTable<TData, TValue>({
       {selectedConversationPhoneNumber && (
         <>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={30} minSize={0}>
+          <ResizablePanel defaultSize={30} minSize={20}>
             <div className="flex flex-col h-full border-l bg-background">
               <div className="border-b p-4 pr-8">
                 <div className="flex items-center justify-between">
@@ -3841,7 +3841,7 @@ export function ContactsTable<TData, TValue>({
                     variant="ghost"
                     size="icon"
                     onClick={() => setSelectedConversationPhoneNumber(null)}
-                    className="h-8 w-8"
+                    className="h-8 w-8 cursor-pointer"
                   >
                     <X className="h-4 w-4" />
                     <span className="sr-only">Close conversation</span>
