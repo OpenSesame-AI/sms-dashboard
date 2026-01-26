@@ -27,6 +27,7 @@ const routeNames: Record<string, string> = {
   "/settings": "Settings",
   "/video": "Video",
   "/context": "Context",
+  "/templates": "Templates",
 }
 
 export function PublicRouteWrapper({ children }: { children: React.ReactNode }) {
@@ -66,7 +67,7 @@ export function PublicRouteWrapper({ children }: { children: React.ReactNode }) 
                       />
                     </div>
                   </BreadcrumbItem>
-                  {pathname !== "/create" && pathname !== "/" && (
+                  {pathname !== "/create" && pathname !== "/" && pathname !== "/integrations" && pathname !== "/templates" && (
                     <>
                       <BreadcrumbSeparator />
                       <BreadcrumbItem>

@@ -583,3 +583,923 @@ export async function executeHubspotAction(
     `Please check the Composio SDK documentation for the correct way to execute actions.`
   )
 }
+/**
+ * Get or create Dynamics365 auth config
+ * Returns the auth config ID for Dynamics365
+ */
+
+/**
+ * Get or create Dynamics365 auth config
+ * Returns the auth config ID for Dynamics365
+ */
+export async function getOrCreateDynamics365AuthConfig(): Promise<string> {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  // Check if we have auth config ID in environment
+  const authConfigId = process.env.COMPOSIO_DYNAMICS365_AUTH_CONFIG_ID
+  
+  if (authConfigId) {
+    return authConfigId
+  }
+
+  // If not in env, we'll need to create it via dashboard
+  // For now, throw error asking user to set it up
+  throw new Error(
+    'COMPOSIO_DYNAMICS365_AUTH_CONFIG_ID not set. ' +
+    'Please create a Dynamics365 auth config in Composio dashboard and set the ID in environment variables.'
+  )
+}
+
+/**
+ * Initiate Dynamics365 connection for a user
+ * Uses OAuth2 authentication
+ * @param userId - User ID (from Clerk or your system)
+ * @param authConfigId - Composio auth config ID for Dynamics365
+ * @param organizationName - Dynamics365 organization name (subdomain, e.g., 'myorg' from myorg.crm.dynamics.com)
+ * @returns Connection request with redirect URL and request ID
+ */
+export async function initiateDynamics365Connection(
+  userId: string,
+  authConfigId: string,
+  organizationName: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  // Use OAuth2 flow with organization name (subdomain) in state
+  const connectionRequest = await composio.connectedAccounts.initiate(
+    userId,
+    authConfigId,
+    {
+      config: {
+        authScheme: 'OAUTH2',
+        val: {
+          status: 'INITIALIZING',
+          subdomain: organizationName,
+        }
+      }
+    } as any
+  )
+
+  return {
+    connectionRequestId: connectionRequest.id,
+    redirectUrl: connectionRequest.redirectUrl,
+    connectionRequest, // Return the full request object for waiting
+  }
+}
+
+/**
+ * Execute a Dynamics365 tool/action
+ * @param connectionId - Composio connection ID
+ * @param actionName - Name of the Dynamics365 action (e.g., 'DYNAMICS365_DYNAMICSCRM_GET_ALL_LEADS')
+ * @param params - Action parameters
+ * @param userId - User ID (optional, will try to get from connection if not provided)
+ * @returns Action result
+ */
+export async function executeDynamics365Action(
+  connectionId: string,
+  actionName: string,
+  params: Record<string, any>,
+  userId?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized.')
+  }
+
+  // Get connection and toolkit info first
+  const connection = await composio.connectedAccounts.get(connectionId)
+  const toolkitSlug = (connection as any)?.toolkit?.slug || 'dynamics365'
+  
+  // Get userId from connection if not provided
+  if (!userId) {
+    userId = (connection as any)?.userId || (connection as any)?.user?.id || 'default'
+    console.log('[Composio] Using userId from connection or default:', userId)
+  }
+  
+  // Try to get toolkit version - we need a real version, not "latest"
+  let toolkitVersion: string | null = null
+  
+  // Try to get version from connection
+  const connectionVersion = (connection as any)?.toolkit?.version
+  if (connectionVersion && connectionVersion !== 'latest') {
+    toolkitVersion = connectionVersion
+    console.log('[Composio] Found toolkit version from connection:', toolkitVersion)
+  }
+  
+  // Try to get version from toolkitVersions if available
+  if (!toolkitVersion && (composio as any).tools?.toolkitVersions) {
+    try {
+      const toolkitVersions = (composio as any).tools.toolkitVersions
+      if (typeof toolkitVersions === 'function') {
+        const versions = await toolkitVersions(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions():', toolkitVersion)
+          }
+        }
+      } else if (typeof toolkitVersions === 'object' && typeof toolkitVersions.get === 'function') {
+        const versions = await toolkitVersions.get(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions.get():', toolkitVersion)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Composio] Could not get version from toolkitVersions:', err)
+    }
+  }
+
+  // Try composio.tools.execute() - this is the correct method according to docs
+  if ((composio as any).tools && typeof (composio as any).tools.execute === 'function') {
+    try {
+      const executeBody: any = {
+        userId: userId,
+        arguments: params,
+        connectedAccountId: connectionId,
+      }
+      
+      if (toolkitVersion && toolkitVersion !== 'latest') {
+        executeBody.version = toolkitVersion
+      } else {
+        executeBody.dangerouslySkipVersionCheck = true
+      }
+      
+      console.log('[Composio] Using composio.tools.execute() with format:', {
+        actionName,
+        userId: executeBody.userId,
+        hasVersion: !!executeBody.version,
+        version: executeBody.version,
+        useDangerouslySkipVersionCheck: executeBody.dangerouslySkipVersionCheck,
+        connectedAccountId: executeBody.connectedAccountId,
+      })
+      
+      return await (composio as any).tools.execute(actionName, executeBody)
+    } catch (err) {
+      console.error('[Composio] tools.execute() failed:', err)
+      throw err
+    }
+  }
+
+  throw new Error(
+    `Unable to execute Dynamics365 action ${actionName}. ` +
+    `The Composio SDK tools.execute() method is not available. ` +
+    `Please check the Composio SDK documentation for the correct way to execute actions.`
+  )
+}
+
+/**
+ * Get or create Zoho auth config
+ * Returns the auth config ID for Zoho
+ */
+export async function getOrCreateZohoAuthConfig(): Promise<string> {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  // Check if we have auth config ID in environment
+  const authConfigId = process.env.COMPOSIO_ZOHO_AUTH_CONFIG_ID
+  
+  if (authConfigId) {
+    return authConfigId
+  }
+
+  // If not in env, we'll need to create it via dashboard
+  // For now, throw error asking user to set it up
+  throw new Error(
+    'COMPOSIO_ZOHO_AUTH_CONFIG_ID not set. ' +
+    'Please create a Zoho auth config in Composio dashboard and set the ID in environment variables.'
+  )
+}
+
+/**
+ * Initiate Zoho connection for a user
+ * Uses OAuth2 authentication
+ * @param userId - User ID (from Clerk or your system)
+ * @param authConfigId - Composio auth config ID for Zoho
+ * @returns Connection request with redirect URL and request ID
+ */
+export async function initiateZohoConnection(
+  userId: string,
+  authConfigId: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  // Use OAuth2 flow
+  const connectionRequest = await composio.connectedAccounts.initiate(
+    userId,
+    authConfigId
+  )
+
+  return {
+    connectionRequestId: connectionRequest.id,
+    redirectUrl: connectionRequest.redirectUrl,
+    connectionRequest, // Return the full request object for waiting
+  }
+}
+
+/**
+ * Execute a Zoho tool/action
+ * @param connectionId - Composio connection ID
+ * @param actionName - Name of the Zoho action (e.g., 'ZOHO_GET_ZOHO_RECORDS')
+ * @param params - Action parameters
+ * @param userId - User ID (optional, will try to get from connection if not provided)
+ * @returns Action result
+ */
+export async function executeZohoAction(
+  connectionId: string,
+  actionName: string,
+  params: Record<string, any>,
+  userId?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized.')
+  }
+
+  // Get connection and toolkit info first
+  const connection = await composio.connectedAccounts.get(connectionId)
+  const toolkitSlug = (connection as any)?.toolkit?.slug || 'zoho'
+  
+  // Get userId from connection if not provided
+  if (!userId) {
+    userId = (connection as any)?.userId || (connection as any)?.user?.id || 'default'
+    console.log('[Composio] Using userId from connection or default:', userId)
+  }
+  
+  // Try to get toolkit version - we need a real version, not "latest"
+  let toolkitVersion: string | null = null
+  
+  // Try to get version from connection
+  const connectionVersion = (connection as any)?.toolkit?.version
+  if (connectionVersion && connectionVersion !== 'latest') {
+    toolkitVersion = connectionVersion
+    console.log('[Composio] Found toolkit version from connection:', toolkitVersion)
+  }
+  
+  // Try to get version from toolkitVersions if available
+  if (!toolkitVersion && (composio as any).tools?.toolkitVersions) {
+    try {
+      const toolkitVersions = (composio as any).tools.toolkitVersions
+      if (typeof toolkitVersions === 'function') {
+        const versions = await toolkitVersions(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions():', toolkitVersion)
+          }
+        }
+      } else if (typeof toolkitVersions === 'object' && typeof toolkitVersions.get === 'function') {
+        const versions = await toolkitVersions.get(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions.get():', toolkitVersion)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Composio] Could not get version from toolkitVersions:', err)
+    }
+  }
+
+  // Try composio.tools.execute()
+  if ((composio as any).tools && typeof (composio as any).tools.execute === 'function') {
+    try {
+      const executeBody: any = {
+        userId: userId,
+        arguments: params,
+        connectedAccountId: connectionId,
+      }
+      
+      if (toolkitVersion && toolkitVersion !== 'latest') {
+        executeBody.version = toolkitVersion
+      } else {
+        executeBody.dangerouslySkipVersionCheck = true
+      }
+      
+      console.log('[Composio] Using composio.tools.execute() with format:', {
+        actionName,
+        userId: executeBody.userId,
+        hasVersion: !!executeBody.version,
+        version: executeBody.version,
+        useDangerouslySkipVersionCheck: executeBody.dangerouslySkipVersionCheck,
+        connectedAccountId: executeBody.connectedAccountId,
+      })
+      
+      return await (composio as any).tools.execute(actionName, executeBody)
+    } catch (err) {
+      console.error('[Composio] tools.execute() failed:', err)
+      throw err
+    }
+  }
+
+  throw new Error(
+    `Unable to execute Zoho action ${actionName}. ` +
+    `The Composio SDK tools.execute() method is not available. ` +
+    `Please check the Composio SDK documentation for the correct way to execute actions.`
+  )
+}
+
+/**
+ * Get or create Zoho Bigin auth config
+ * Returns the auth config ID for Zoho Bigin
+ */
+export async function getOrCreateZohoBiginAuthConfig(): Promise<string> {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  const authConfigId = process.env.COMPOSIO_ZOHO_BIGIN_AUTH_CONFIG_ID
+  
+  if (authConfigId) {
+    return authConfigId
+  }
+
+  throw new Error(
+    'COMPOSIO_ZOHO_BIGIN_AUTH_CONFIG_ID not set. ' +
+    'Please create a Zoho Bigin auth config in Composio dashboard and set the ID in environment variables.'
+  )
+}
+
+/**
+ * Initiate Zoho Bigin connection for a user
+ * Uses OAuth2 authentication
+ */
+export async function initiateZohoBiginConnection(
+  userId: string,
+  authConfigId: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  const connectionRequest = await composio.connectedAccounts.initiate(
+    userId,
+    authConfigId
+  )
+
+  return {
+    connectionRequestId: connectionRequest.id,
+    redirectUrl: connectionRequest.redirectUrl,
+    connectionRequest,
+  }
+}
+
+/**
+ * Execute a Zoho Bigin tool/action
+ */
+export async function executeZohoBiginAction(
+  connectionId: string,
+  actionName: string,
+  params: Record<string, any>,
+  userId?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized.')
+  }
+
+  const connection = await composio.connectedAccounts.get(connectionId)
+  const toolkitSlug = (connection as any)?.toolkit?.slug || 'zoho_bigin'
+  
+  if (!userId) {
+    userId = (connection as any)?.userId || (connection as any)?.user?.id || 'default'
+    console.log('[Composio] Using userId from connection or default:', userId)
+  }
+  
+  let toolkitVersion: string | null = null
+  
+  const connectionVersion = (connection as any)?.toolkit?.version
+  if (connectionVersion && connectionVersion !== 'latest') {
+    toolkitVersion = connectionVersion
+    console.log('[Composio] Found toolkit version from connection:', toolkitVersion)
+  }
+  
+  if (!toolkitVersion && (composio as any).tools?.toolkitVersions) {
+    try {
+      const toolkitVersions = (composio as any).tools.toolkitVersions
+      if (typeof toolkitVersions === 'function') {
+        const versions = await toolkitVersions(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions():', toolkitVersion)
+          }
+        }
+      } else if (typeof toolkitVersions === 'object' && typeof toolkitVersions.get === 'function') {
+        const versions = await toolkitVersions.get(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions.get():', toolkitVersion)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Composio] Could not get version from toolkitVersions:', err)
+    }
+  }
+
+  if ((composio as any).tools && typeof (composio as any).tools.execute === 'function') {
+    try {
+      const executeBody: any = {
+        userId: userId,
+        arguments: params,
+        connectedAccountId: connectionId,
+      }
+      
+      if (toolkitVersion && toolkitVersion !== 'latest') {
+        executeBody.version = toolkitVersion
+      } else {
+        executeBody.dangerouslySkipVersionCheck = true
+      }
+      
+      console.log('[Composio] Using composio.tools.execute() with format:', {
+        actionName,
+        userId: executeBody.userId,
+        hasVersion: !!executeBody.version,
+        version: executeBody.version,
+        useDangerouslySkipVersionCheck: executeBody.dangerouslySkipVersionCheck,
+        connectedAccountId: executeBody.connectedAccountId,
+      })
+      
+      return await (composio as any).tools.execute(actionName, executeBody)
+    } catch (err) {
+      console.error('[Composio] tools.execute() failed:', err)
+      throw err
+    }
+  }
+
+  throw new Error(
+    `Unable to execute Zoho Bigin action ${actionName}. ` +
+    `The Composio SDK tools.execute() method is not available. ` +
+    `Please check the Composio SDK documentation for the correct way to execute actions.`
+  )
+}
+
+/**
+ * Get or create AgencyZoom auth config
+ * Returns the auth config ID for AgencyZoom
+ */
+export async function getOrCreateAgencyzoomAuthConfig(): Promise<string> {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  const authConfigId = process.env.COMPOSIO_AGENCYZOOM_AUTH_CONFIG_ID
+  
+  if (authConfigId) {
+    return authConfigId
+  }
+
+  throw new Error(
+    'COMPOSIO_AGENCYZOOM_AUTH_CONFIG_ID not set. ' +
+    'Please create an AgencyZoom auth config in Composio dashboard and set the ID in environment variables.'
+  )
+}
+
+/**
+ * Initiate AgencyZoom connection for a user
+ * Uses API Key authentication (immediate, no redirect)
+ */
+export async function initiateAgencyzoomConnection(
+  userId: string,
+  authConfigId: string,
+  apiKey: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  // AgencyZoom uses API Key authentication - immediate connection, no redirect
+  try {
+    const connectionRequest = await composio.connectedAccounts.initiate(
+      userId,
+      authConfigId,
+      {
+        config: {
+          auth_scheme: 'API_KEY',
+          val: {
+            bearer_token: apiKey
+          }
+        }
+      } as any
+    )
+
+    return {
+      connectionRequestId: connectionRequest.id,
+      redirectUrl: null, // No redirect needed for API Key
+      connectionRequest,
+      immediate: true, // Flag to indicate immediate connection
+    }
+  } catch (error) {
+    console.error('[Composio] Error initiating AgencyZoom API Key connection:', error)
+    throw error
+  }
+}
+
+/**
+ * Execute an AgencyZoom tool/action
+ */
+export async function executeAgencyzoomAction(
+  connectionId: string,
+  actionName: string,
+  params: Record<string, any>,
+  userId?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized.')
+  }
+
+  const connection = await composio.connectedAccounts.get(connectionId)
+  const toolkitSlug = (connection as any)?.toolkit?.slug || 'agencyzoom'
+  
+  if (!userId) {
+    userId = (connection as any)?.userId || (connection as any)?.user?.id || 'default'
+    console.log('[Composio] Using userId from connection or default:', userId)
+  }
+  
+  let toolkitVersion: string | null = null
+  
+  const connectionVersion = (connection as any)?.toolkit?.version
+  if (connectionVersion && connectionVersion !== 'latest') {
+    toolkitVersion = connectionVersion
+    console.log('[Composio] Found toolkit version from connection:', toolkitVersion)
+  }
+  
+  if (!toolkitVersion && (composio as any).tools?.toolkitVersions) {
+    try {
+      const toolkitVersions = (composio as any).tools.toolkitVersions
+      if (typeof toolkitVersions === 'function') {
+        const versions = await toolkitVersions(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions():', toolkitVersion)
+          }
+        }
+      } else if (typeof toolkitVersions === 'object' && typeof toolkitVersions.get === 'function') {
+        const versions = await toolkitVersions.get(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions.get():', toolkitVersion)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Composio] Could not get version from toolkitVersions:', err)
+    }
+  }
+
+  if ((composio as any).tools && typeof (composio as any).tools.execute === 'function') {
+    try {
+      const executeBody: any = {
+        userId: userId,
+        arguments: params,
+        connectedAccountId: connectionId,
+      }
+      
+      if (toolkitVersion && toolkitVersion !== 'latest') {
+        executeBody.version = toolkitVersion
+      } else {
+        executeBody.dangerouslySkipVersionCheck = true
+      }
+      
+      console.log('[Composio] Using composio.tools.execute() with format:', {
+        actionName,
+        userId: executeBody.userId,
+        hasVersion: !!executeBody.version,
+        version: executeBody.version,
+        useDangerouslySkipVersionCheck: executeBody.dangerouslySkipVersionCheck,
+        connectedAccountId: executeBody.connectedAccountId,
+      })
+      
+      return await (composio as any).tools.execute(actionName, executeBody)
+    } catch (err) {
+      console.error('[Composio] tools.execute() failed:', err)
+      throw err
+    }
+  }
+
+  throw new Error(
+    `Unable to execute AgencyZoom action ${actionName}. ` +
+    `The Composio SDK tools.execute() method is not available. ` +
+    `Please check the Composio SDK documentation for the correct way to execute actions.`
+  )
+}
+
+/**
+ * Get or create Attio auth config
+ * Returns the auth config ID for Attio
+ */
+export async function getOrCreateAttioAuthConfig(): Promise<string> {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  const authConfigId = process.env.COMPOSIO_ATTIO_AUTH_CONFIG_ID
+  
+  if (authConfigId) {
+    return authConfigId
+  }
+
+  throw new Error(
+    'COMPOSIO_ATTIO_AUTH_CONFIG_ID not set. ' +
+    'Please create an Attio auth config in Composio dashboard and set the ID in environment variables.'
+  )
+}
+
+/**
+ * Initiate Attio connection for a user
+ * Uses OAuth2 authentication
+ * @param userId - User ID (from Clerk or your system)
+ * @param authConfigId - Composio auth config ID for Attio
+ * @returns Connection request with redirect URL and request ID
+ */
+export async function initiateAttioConnection(
+  userId: string,
+  authConfigId: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  const connectionRequest = await composio.connectedAccounts.initiate(
+    userId,
+    authConfigId
+  )
+
+  return {
+    connectionRequestId: connectionRequest.id,
+    redirectUrl: connectionRequest.redirectUrl,
+    connectionRequest,
+  }
+}
+
+/**
+ * Execute an Attio tool/action
+ * @param connectionId - Composio connection ID
+ * @param actionName - Name of the Attio action (e.g., 'ATTIO_PEOPLE_LIST_PERSONS')
+ * @param params - Action parameters
+ * @param userId - User ID (optional, will try to get from connection if not provided)
+ * @returns Action result
+ */
+export async function executeAttioAction(
+  connectionId: string,
+  actionName: string,
+  params: Record<string, any>,
+  userId?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized.')
+  }
+
+  const connection = await composio.connectedAccounts.get(connectionId)
+  const toolkitSlug = (connection as any)?.toolkit?.slug || 'attio'
+  
+  if (!userId) {
+    userId = (connection as any)?.userId || (connection as any)?.user?.id || 'default'
+    console.log('[Composio] Using userId from connection or default:', userId)
+  }
+  
+  let toolkitVersion: string | null = null
+  
+  const connectionVersion = (connection as any)?.toolkit?.version
+  if (connectionVersion && connectionVersion !== 'latest') {
+    toolkitVersion = connectionVersion
+    console.log('[Composio] Found toolkit version from connection:', toolkitVersion)
+  }
+  
+  if (!toolkitVersion && (composio as any).tools?.toolkitVersions) {
+    try {
+      const toolkitVersions = (composio as any).tools.toolkitVersions
+      if (typeof toolkitVersions === 'function') {
+        const versions = await toolkitVersions(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions():', toolkitVersion)
+          }
+        }
+      } else if (typeof toolkitVersions === 'object' && typeof toolkitVersions.get === 'function') {
+        const versions = await toolkitVersions.get(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions.get():', toolkitVersion)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Composio] Could not get version from toolkitVersions:', err)
+    }
+  }
+
+  if ((composio as any).tools && typeof (composio as any).tools.execute === 'function') {
+    try {
+      const executeBody: any = {
+        userId: userId,
+        arguments: params,
+        connectedAccountId: connectionId,
+      }
+      
+      if (toolkitVersion && toolkitVersion !== 'latest') {
+        executeBody.version = toolkitVersion
+      } else {
+        executeBody.dangerouslySkipVersionCheck = true
+      }
+      
+      console.log('[Composio] Using composio.tools.execute() with format:', {
+        actionName,
+        userId: executeBody.userId,
+        hasVersion: !!executeBody.version,
+        version: executeBody.version,
+        useDangerouslySkipVersionCheck: executeBody.dangerouslySkipVersionCheck,
+        connectedAccountId: executeBody.connectedAccountId,
+      })
+      
+      return await (composio as any).tools.execute(actionName, executeBody)
+    } catch (err) {
+      console.error('[Composio] tools.execute() failed:', err)
+      throw err
+    }
+  }
+
+  throw new Error(
+    `Unable to execute Attio action ${actionName}. ` +
+    `The Composio SDK tools.execute() method is not available. ` +
+    `Please check the Composio SDK documentation for the correct way to execute actions.`
+  )
+}
+
+/**
+ * Get or create Zendesk auth config
+ * Returns the auth config ID for Zendesk
+ */
+export async function getOrCreateZendeskAuthConfig(): Promise<string> {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  const authConfigId = process.env.COMPOSIO_ZENDESK_AUTH_CONFIG_ID
+  
+  if (authConfigId) {
+    return authConfigId
+  }
+
+  throw new Error(
+    'COMPOSIO_ZENDESK_AUTH_CONFIG_ID not set. ' +
+    'Please create a Zendesk auth config in Composio dashboard and set the ID in environment variables.'
+  )
+}
+
+/**
+ * Initiate Zendesk connection for a user
+ * Uses OAuth2 authentication
+ * @param userId - User ID (from Clerk or your system)
+ * @param authConfigId - Composio auth config ID for Zendesk
+ * @returns Connection request with redirect URL and request ID
+ */
+export async function initiateZendeskConnection(
+  userId: string,
+  authConfigId: string,
+  subdomain: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized. Set COMPOSIO_API_KEY environment variable.')
+  }
+
+  const connectionRequest = await composio.connectedAccounts.initiate(
+    userId,
+    authConfigId,
+    {
+      config: {
+        authScheme: 'OAUTH2',
+        val: {
+          subdomain: subdomain,
+        }
+      }
+    } as any
+  )
+
+  return {
+    connectionRequestId: connectionRequest.id,
+    redirectUrl: connectionRequest.redirectUrl,
+    connectionRequest,
+  }
+}
+
+/**
+ * Execute a Zendesk tool/action
+ * @param connectionId - Composio connection ID
+ * @param actionName - Name of the Zendesk action (e.g., 'ZENDESK_SEARCH_ZENDESK_USERS')
+ * @param params - Action parameters
+ * @param userId - User ID (optional, will try to get from connection if not provided)
+ * @returns Action result
+ */
+export async function executeZendeskAction(
+  connectionId: string,
+  actionName: string,
+  params: Record<string, any>,
+  userId?: string
+) {
+  if (!composio) {
+    throw new Error('Composio client not initialized.')
+  }
+
+  const connection = await composio.connectedAccounts.get(connectionId)
+  const toolkitSlug = (connection as any)?.toolkit?.slug || 'zendesk'
+  
+  if (!userId) {
+    userId = (connection as any)?.userId || (connection as any)?.user?.id || 'default'
+    console.log('[Composio] Using userId from connection or default:', userId)
+  }
+  
+  let toolkitVersion: string | null = null
+  
+  const connectionVersion = (connection as any)?.toolkit?.version
+  if (connectionVersion && connectionVersion !== 'latest') {
+    toolkitVersion = connectionVersion
+    console.log('[Composio] Found toolkit version from connection:', toolkitVersion)
+  }
+  
+  if (!toolkitVersion && (composio as any).tools?.toolkitVersions) {
+    try {
+      const toolkitVersions = (composio as any).tools.toolkitVersions
+      if (typeof toolkitVersions === 'function') {
+        const versions = await toolkitVersions(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions():', toolkitVersion)
+          }
+        }
+      } else if (typeof toolkitVersions === 'object' && typeof toolkitVersions.get === 'function') {
+        const versions = await toolkitVersions.get(toolkitSlug)
+        if (versions && Array.isArray(versions) && versions.length > 0) {
+          const firstVersion = versions[0]
+          toolkitVersion = typeof firstVersion === 'string' ? firstVersion : (firstVersion.version || firstVersion.id || null)
+          if (toolkitVersion && toolkitVersion !== 'latest') {
+            console.log('[Composio] Found toolkit version from toolkitVersions.get():', toolkitVersion)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Composio] Could not get version from toolkitVersions:', err)
+    }
+  }
+
+  if ((composio as any).tools && typeof (composio as any).tools.execute === 'function') {
+    try {
+      const executeBody: any = {
+        userId: userId,
+        arguments: params,
+        connectedAccountId: connectionId,
+      }
+      
+      if (toolkitVersion && toolkitVersion !== 'latest') {
+        executeBody.version = toolkitVersion
+      } else {
+        executeBody.dangerouslySkipVersionCheck = true
+      }
+      
+      console.log('[Composio] Using composio.tools.execute() with format:', {
+        actionName,
+        userId: executeBody.userId,
+        hasVersion: !!executeBody.version,
+        version: executeBody.version,
+        useDangerouslySkipVersionCheck: executeBody.dangerouslySkipVersionCheck,
+        connectedAccountId: executeBody.connectedAccountId,
+      })
+      
+      return await (composio as any).tools.execute(actionName, executeBody)
+    } catch (err) {
+      console.error('[Composio] tools.execute() failed:', err)
+      throw err
+    }
+  }
+
+  throw new Error(
+    `Unable to execute Zendesk action ${actionName}. ` +
+    `The Composio SDK tools.execute() method is not available. ` +
+    `Please check the Composio SDK documentation for the correct way to execute actions.`
+  )
+}

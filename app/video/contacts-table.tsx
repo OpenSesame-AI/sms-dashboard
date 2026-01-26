@@ -32,7 +32,7 @@ import {
 import { DataTablePagination } from "@/components/data-table-pagination"
 import { DataTableViewOptions } from "@/components/data-table-view-options"
 import { Contact, ConversationMessage } from "@/lib/data"
-import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel, Bell, AlertTriangle, WandSparkles, Settings, Eye, EyeOff, Copy, ArrowLeft, ArrowRight, Pin, Info, Palette, Type, Calendar, Hash, Tag } from "lucide-react"
+import { Plus, X, GripVertical, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Download, Search, Pencil, Funnel, Bell, AlertTriangle, WandSparkles, Settings, Eye, EyeOff, Copy, ArrowLeft, ArrowRight, Pin, Info, Palette, Type, Calendar, Hash, Tag, Languages, Loader2 } from "lucide-react"
 import { cn, getCellCountry } from "@/lib/utils"
 import { useCell } from "@/components/cell-context"
 import { createColumns } from "./columns"
@@ -98,6 +98,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { TruncatedCellContent } from "@/components/truncated-cell-content"
+import { MessageTemplateSelector } from "@/components/message-template-selector"
+import { AiFollowUpSuggestions } from "@/components/ai-follow-up-suggestions"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -1381,6 +1383,12 @@ export function ContactsTable<TData, TValue>({
   const [sheetPhoneNumber, setSheetPhoneNumber] = React.useState("")
   const [sheetMessage, setSheetMessage] = React.useState("")
   
+  // Scheduling state
+  const [isSchedulePopoverOpen, setIsSchedulePopoverOpen] = React.useState(false)
+  const [scheduleDate, setScheduleDate] = React.useState("")
+  const [scheduleTime, setScheduleTime] = React.useState("")
+  const [isScheduling, setIsScheduling] = React.useState(false)
+  
   // Mock conversation messages - in a real app, this would come from an API
   const [conversationMessages, setConversationMessages] = React.useState<Array<{
     id: string
@@ -1389,6 +1397,12 @@ export function ContactsTable<TData, TValue>({
     isInbound: boolean
     channel?: string
   }>>([])
+  
+  // Translation state
+  const [translations, setTranslations] = React.useState<Map<string, string>>(new Map())
+  const [translationLoading, setTranslationLoading] = React.useState<Map<string, boolean>>(new Map())
+  const [showTranslation, setShowTranslation] = React.useState<Map<string, boolean>>(new Map())
+  const [targetLanguage, setTargetLanguage] = React.useState<string>("en")
   
   // Phone number search state
   const [phoneSearch, setPhoneSearch] = React.useState("")
@@ -1464,6 +1478,73 @@ export function ContactsTable<TData, TValue>({
       setConversationMessages([])
     }
   }, [isMessageSheetOpen, sheetPhoneNumber, selectedCell])
+
+  // Translation function
+  const translateMessage = async (messageId: string, text: string) => {
+    // Check if already translated
+    if (translations.has(messageId)) {
+      // Toggle show translation
+      setShowTranslation((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(messageId, !prev.get(messageId))
+        return newMap
+      })
+      return
+    }
+
+    // Set loading state
+    setTranslationLoading((prev) => {
+      const newMap = new Map(prev)
+      newMap.set(messageId, true)
+      return newMap
+    })
+
+    try {
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          targetLanguage,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Translation failed')
+      }
+
+      const data = await response.json()
+      const translatedText = data.translatedText || text
+
+      // Save translation
+      setTranslations((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(messageId, translatedText)
+        return newMap
+      })
+
+      // Show translation
+      setShowTranslation((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(messageId, true)
+        return newMap
+      })
+    } catch (error) {
+      console.error('Translation error:', error)
+      toast.error('Translation failed', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      })
+    } finally {
+      // Clear loading state
+      setTranslationLoading((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(messageId, false)
+        return newMap
+      })
+    }
+  }
 
   // Scroll to bottom when sheet opens or messages change
   React.useEffect(() => {
@@ -1991,6 +2072,73 @@ export function ContactsTable<TData, TValue>({
     }
   }
 
+  const handleScheduleMessage = async () => {
+    const phoneNumber = String(sheetPhoneNumber || "")
+    const message = String(sheetMessage || "").trim()
+    
+    if (!message || !phoneNumber || !scheduleDate || !scheduleTime || !selectedCell?.id) {
+      toast.error("Missing information", {
+        description: "Please fill in the message and schedule date/time",
+      })
+      return
+    }
+
+    // Combine date and time into a full ISO timestamp
+    const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`)
+    
+    if (isNaN(scheduledFor.getTime())) {
+      toast.error("Invalid date/time", {
+        description: "Please enter a valid date and time",
+      })
+      return
+    }
+
+    if (scheduledFor <= new Date()) {
+      toast.error("Invalid schedule time", {
+        description: "Schedule time must be in the future",
+      })
+      return
+    }
+
+    setIsScheduling(true)
+
+    try {
+      const res = await fetch("/api/scheduled-messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cellId: selectedCell.id,
+          message,
+          recipients: [phoneNumber],
+          scheduledFor: scheduledFor.toISOString(),
+        }),
+      })
+
+      const data = await res.json()
+      
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to schedule message")
+      }
+
+      setSheetMessage("")
+      setScheduleDate("")
+      setScheduleTime("")
+      setIsSchedulePopoverOpen(false)
+      
+      toast.success("Message scheduled", {
+        description: `Message will be sent to ${phoneNumber} on ${scheduledFor.toLocaleString()}`,
+      })
+    } catch (err) {
+      toast.error("Failed to schedule message", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      })
+    } finally {
+      setIsScheduling(false)
+    }
+  }
+
   const [isSendingConversation, setIsSendingConversation] = React.useState(false)
 
   const handleSendConversation = async () => {
@@ -2468,7 +2616,8 @@ export function ContactsTable<TData, TValue>({
       })
 
       if (!response.ok) {
-        throw new Error('Failed to delete column')
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete column')
       }
 
       // Remove from state
@@ -3788,7 +3937,23 @@ export function ContactsTable<TData, TValue>({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="conversation-message">Message</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="conversation-message">Message</Label>
+                <MessageTemplateSelector
+                  contact={(() => {
+                    // Find contact by phone number if it exists
+                    if (conversationPhoneNumber) {
+                      return contactsData.find(
+                        (c) => c.phoneNumber === conversationPhoneNumber.trim()
+                      ) || null
+                    }
+                    return null
+                  })()}
+                  onTemplateSelect={(substitutedContent) => {
+                    setConversationMessage(substitutedContent)
+                  }}
+                />
+              </div>
               <Textarea
                 id="conversation-message"
                 placeholder="Type your message here..."
@@ -3831,6 +3996,41 @@ export function ContactsTable<TData, TValue>({
                     Thread for {sheetPhoneNumber || "this contact"}
                   </SheetDescription>
                 </div>
+                <Select value={targetLanguage} onValueChange={setTargetLanguage}>
+                  <SelectTrigger className="w-[140px] h-8 text-xs">
+                    <SelectValue placeholder="Language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">English</SelectItem>
+                    <SelectItem value="es">Spanish</SelectItem>
+                    <SelectItem value="fr">French</SelectItem>
+                    <SelectItem value="de">German</SelectItem>
+                    <SelectItem value="it">Italian</SelectItem>
+                    <SelectItem value="pt">Portuguese</SelectItem>
+                    <SelectItem value="ru">Russian</SelectItem>
+                    <SelectItem value="ja">Japanese</SelectItem>
+                    <SelectItem value="ko">Korean</SelectItem>
+                    <SelectItem value="zh">Chinese</SelectItem>
+                    <SelectItem value="ar">Arabic</SelectItem>
+                    <SelectItem value="hi">Hindi</SelectItem>
+                    <SelectItem value="nl">Dutch</SelectItem>
+                    <SelectItem value="pl">Polish</SelectItem>
+                    <SelectItem value="tr">Turkish</SelectItem>
+                    <SelectItem value="sv">Swedish</SelectItem>
+                    <SelectItem value="da">Danish</SelectItem>
+                    <SelectItem value="no">Norwegian</SelectItem>
+                    <SelectItem value="fi">Finnish</SelectItem>
+                    <SelectItem value="cs">Czech</SelectItem>
+                    <SelectItem value="hu">Hungarian</SelectItem>
+                    <SelectItem value="ro">Romanian</SelectItem>
+                    <SelectItem value="el">Greek</SelectItem>
+                    <SelectItem value="he">Hebrew</SelectItem>
+                    <SelectItem value="th">Thai</SelectItem>
+                    <SelectItem value="vi">Vietnamese</SelectItem>
+                    <SelectItem value="id">Indonesian</SelectItem>
+                    <SelectItem value="ms">Malay</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </SheetHeader>
           </div>
@@ -3847,35 +4047,96 @@ export function ContactsTable<TData, TValue>({
                 <div className="text-xs text-muted-foreground text-center mb-4">
                   Inbound (customer) on the left • Outbound (you) on the right
                 </div>
-                {conversationMessages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.isInbound ? "justify-start" : "justify-end"}`}
-                  >
+                {conversationMessages.map((msg) => {
+                  const isTranslated = showTranslation.get(msg.id) || false
+                  const translatedText = translations.get(msg.id)
+                  const isLoading = translationLoading.get(msg.id) || false
+                  const displayText = isTranslated && translatedText ? translatedText : msg.text
+                  
+                  return (
                     <div
-                      className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                        msg.isInbound
-                          ? "bg-muted"
-                          : "bg-primary text-primary-foreground"
-                      }`}
+                      key={msg.id}
+                      className={`flex ${msg.isInbound ? "justify-start" : "justify-end"}`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm flex-1">{msg.text}</p>
+                      <div
+                        className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                          msg.isInbound
+                            ? "bg-muted"
+                            : "bg-primary text-primary-foreground"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm flex-1">{displayText}</p>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <p className={`text-xs ${
+                            msg.isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
+                          }`}>
+                            {msg.timestamp}
+                          </p>
+                          <button
+                            onClick={() => translateMessage(msg.id, msg.text)}
+                            disabled={isLoading}
+                            className={`ml-2 flex items-center gap-1 text-xs transition-opacity hover:opacity-80 disabled:opacity-50 ${
+                              msg.isInbound 
+                                ? "text-muted-foreground" 
+                                : "text-primary-foreground/70"
+                            }`}
+                            title={isTranslated ? "Show original" : "Translate"}
+                          >
+                            {isLoading ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Languages className="h-3 w-3" />
+                            )}
+                            {isTranslated && (
+                              <span className="text-[10px]">Original</span>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                      <p className={`text-xs mt-1 ${
-                        msg.isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
-                      }`}>
-                        {msg.timestamp}
-                      </p>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </>
             )}
           </div>
           
           {/* Input area */}
           <div className="border-t p-4 pr-8">
+            <div className="flex justify-end items-center gap-2 mb-2">
+              <AiFollowUpSuggestions
+                phoneNumber={sheetPhoneNumber || ""}
+                onSelect={(suggestion) => {
+                  setSheetMessage(suggestion)
+                }}
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!sheetPhoneNumber || conversationMessages.length === 0}
+                  className="text-xs"
+                >
+                  <WandSparkles className="h-4 w-4 mr-2" />
+                  AI Guidance
+                </Button>
+              </AiFollowUpSuggestions>
+              <MessageTemplateSelector
+                contact={(() => {
+                  // Find contact by phone number if it exists
+                  if (sheetPhoneNumber) {
+                    return contactsData.find(
+                      (c) => c.phoneNumber === sheetPhoneNumber
+                    ) || null
+                  }
+                  return null
+                })()}
+                onTemplateSelect={(substitutedContent) => {
+                  setSheetMessage(substitutedContent)
+                }}
+                className="text-xs"
+              />
+            </div>
             <div className="flex gap-2">
               <Textarea
                 placeholder="Type your message here..."
@@ -3890,13 +4151,68 @@ export function ContactsTable<TData, TValue>({
                 rows={3}
                 className="resize-none flex-1"
               />
-              <Button
-                onClick={handleSendSheetMessage}
-                disabled={!sheetMessage.trim()}
-                className="self-end"
-              >
-                Send
-              </Button>
+              <div className="flex flex-col gap-1 self-end">
+                <Button
+                  onClick={handleSendSheetMessage}
+                  disabled={!sheetMessage.trim()}
+                >
+                  Send
+                </Button>
+                <Popover open={isSchedulePopoverOpen} onOpenChange={setIsSchedulePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!sheetMessage.trim()}
+                      className="text-xs"
+                    >
+                      <Calendar className="h-3 w-3 mr-1" />
+                      Schedule
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72" align="end">
+                    <div className="space-y-3">
+                      <h4 className="font-medium text-sm">Schedule Message</h4>
+                      <div className="space-y-2">
+                        <Label htmlFor="schedule-date-video" className="text-xs">Date</Label>
+                        <Input
+                          id="schedule-date-video"
+                          type="date"
+                          value={scheduleDate}
+                          onChange={(e) => setScheduleDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                          className="text-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="schedule-time-video" className="text-xs">Time</Label>
+                        <Input
+                          id="schedule-time-video"
+                          type="time"
+                          value={scheduleTime}
+                          onChange={(e) => setScheduleTime(e.target.value)}
+                          className="text-sm"
+                        />
+                      </div>
+                      <Button
+                        onClick={handleScheduleMessage}
+                        disabled={!scheduleDate || !scheduleTime || isScheduling}
+                        className="w-full"
+                        size="sm"
+                      >
+                        {isScheduling ? (
+                          <>
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            Scheduling...
+                          </>
+                        ) : (
+                          "Confirm Schedule"
+                        )}
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
           </div>
         </SheetContent>

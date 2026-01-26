@@ -25,7 +25,10 @@
     "migrate:hubspot-contacts": "tsx scripts/apply-hubspot-contacts-table.ts",
     "migrate:column-visibility": "tsx scripts/apply-column-visibility-table.ts",
     "migrate:api-keys": "tsx scripts/apply-api-keys-table.ts",
-    "migrate:user-id-to-integrations": "tsx scripts/apply-user-id-to-integrations.ts"
+    "migrate:user-id-to-integrations": "tsx scripts/apply-user-id-to-integrations.ts",
+    "migrate:message-templates": "tsx scripts/apply-message-templates-table.ts",
+    "migrate:scheduled-messages": "tsx scripts/apply-scheduled-messages-table.ts",
+    "backfill:default-alerts": "tsx scripts/backfill-default-alerts.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",

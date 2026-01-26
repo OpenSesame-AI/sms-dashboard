@@ -230,4 +230,20 @@ Response Format:
   },
 ]
 
+// Default AI Analysis Column
+export const DEFAULT_BUYING_CYCLE_COLUMN_KEY = 'buying-cycle-stage'
+
+export const DEFAULT_BUYING_CYCLE_PROMPT = `Analyze this SMS conversation and identify which stage of the buying cycle the customer is currently in.
+
+Buying cycle stages:
+- Awareness: Customer is just learning about the product/service, asking general questions
+- Interest: Customer shows curiosity, asking about features, benefits, or how it works
+- Consideration: Customer is comparing options, asking about pricing, plans, or alternatives
+- Intent: Customer expresses desire to purchase, asking about next steps, availability, or purchase process
+- Evaluation: Customer is actively evaluating the purchase, asking detailed questions about implementation, compatibility, or specific use cases
+- Purchase: Customer is ready to buy, asking about payment, checkout, or completing the transaction
+- Post-purchase: Customer has made a purchase, asking about setup, onboarding, support, or follow-up
+
+Respond with ONLY the stage name (e.g., "Interest", "Consideration", "Purchase"). If the conversation doesn't clearly indicate a buying cycle, respond with "N/A".`
+
 

@@ -8,6 +8,7 @@ import {
   getCellById,
   getAvailablePhoneNumber,
   removeAvailablePhoneNumber,
+  createAiAlert,
 } from '@/lib/db/queries'
 import { searchAndPurchaseNumber, configurePhoneNumberWebhooks, getPhoneNumberByNumber } from '@/lib/twilio'
 
@@ -181,6 +182,32 @@ export async function POST(request: Request) {
     }
     
     const cell = await createCell(phoneNumber, name, userId, undefined, orgId)
+    
+    // Create default sentiment alert for the new cell
+    try {
+      await createAiAlert(
+        'Customer Sentiment',
+        'ai',
+        "Does the customer's message express positive or negative sentiment (not neutral)? Look for emotional indicators, satisfaction or dissatisfaction, praise or complaints, frustration or appreciation. Respond 'yes' if the sentiment is clearly positive or negative, 'no' if it's neutral or factual.",
+        cell.id
+      )
+    } catch (error) {
+      // Log error but don't fail cell creation if alert creation fails
+      console.error('Failed to create default sentiment alert for cell:', error)
+    }
+    
+    // Create default potential issues alert for the new cell
+    try {
+      await createAiAlert(
+        'Potential Issues',
+        'ai',
+        "Does the customer's message indicate a potential issue that requires attention? Look for: complaints, dissatisfaction, requests for escalation or a manager, technical problems, errors, urgent matters, service issues, or any situation that may need immediate attention or follow-up. Respond 'yes' if there's a clear issue, 'no' if it's a normal inquiry or positive interaction.",
+        cell.id
+      )
+    } catch (error) {
+      // Log error but don't fail cell creation if alert creation fails
+      console.error('Failed to create default potential issues alert for cell:', error)
+    }
     
     // Return cell with webhook configuration status
     return NextResponse.json({

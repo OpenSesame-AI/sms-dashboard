@@ -4,10 +4,15 @@ import {
   createAiColumn,
   updateAiColumn,
   deleteAiColumn,
+  ensureDefaultBuyingCycleColumn,
 } from '@/lib/db/queries'
+import { DEFAULT_BUYING_CYCLE_COLUMN_KEY } from '@/lib/constants'
 
 export async function GET() {
   try {
+    // Ensure default buying cycle column exists
+    await ensureDefaultBuyingCycleColumn()
+    
     const columns = await getAiColumns()
     return NextResponse.json(columns)
   } catch (error) {
@@ -82,6 +87,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(
         { error: 'columnKey query parameter is required' },
         { status: 400 }
+      )
+    }
+
+    // Protect default buying cycle column from deletion
+    if (columnKey === DEFAULT_BUYING_CYCLE_COLUMN_KEY) {
+      return NextResponse.json(
+        { error: 'Cannot delete the default buying cycle stage column' },
+        { status: 403 }
       )
     }
 

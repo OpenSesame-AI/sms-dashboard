@@ -177,6 +177,97 @@ export const hubspotContacts = pgTable('hubspot_contacts', {
   uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
 }))
 
+export const dynamics365Contacts = pgTable('dynamics365_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  dynamics365Id: varchar('dynamics365_id').notNull(),
+  firstName: varchar('first_name'),
+  lastName: varchar('last_name'),
+  email: varchar('email'),
+  companyName: varchar('company_name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
+export const zohoContacts = pgTable('zoho_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  zohoId: varchar('zoho_id').notNull(),
+  firstName: varchar('first_name'),
+  lastName: varchar('last_name'),
+  email: varchar('email'),
+  companyName: varchar('company_name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
+export const zohoBiginContacts = pgTable('zoho_bigin_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  zohoBiginId: varchar('zoho_bigin_id').notNull(),
+  firstName: varchar('first_name'),
+  lastName: varchar('last_name'),
+  email: varchar('email'),
+  companyName: varchar('company_name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
+export const agencyzoomContacts = pgTable('agencyzoom_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  agencyzoomId: varchar('agencyzoom_id').notNull(),
+  firstName: varchar('first_name'),
+  lastName: varchar('last_name'),
+  email: varchar('email'),
+  companyName: varchar('company_name'),
+  sourceType: varchar('source_type').notNull().default('customer'), // 'customer' or 'lead'
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
+export const attioContacts = pgTable('attio_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  attioId: varchar('attio_id').notNull(),
+  firstName: varchar('first_name'),
+  lastName: varchar('last_name'),
+  email: varchar('email'),
+  companyName: varchar('company_name'),
+  jobTitle: varchar('job_title'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
+export const zendeskContacts = pgTable('zendesk_contacts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  phoneNumber: varchar('phone_number').notNull(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }),
+  zendeskId: varchar('zendesk_id').notNull(),
+  name: varchar('name'),
+  email: varchar('email'),
+  organizationId: varchar('organization_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniquePhoneCell: unique().on(table.phoneNumber, table.cellId),
+}))
+
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
   cellId: uuid('cell_id').notNull().references(() => cells.id, { onDelete: 'cascade' }),
@@ -185,6 +276,28 @@ export const apiKeys = pgTable('api_keys', {
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   createdBy: varchar('created_by').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+})
+
+export const messageTemplates = pgTable('message_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cellId: uuid('cell_id').references(() => cells.id, { onDelete: 'cascade' }), // nullable for global templates
+  name: varchar('name').notNull(),
+  content: text('content').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+})
+
+export const scheduledMessages = pgTable('scheduled_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cellId: uuid('cell_id').notNull().references(() => cells.id, { onDelete: 'cascade' }),
+  message: text('message').notNull(),
+  recipients: text('recipients').notNull(), // JSON array of phone numbers
+  scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
+  status: varchar('status').notNull().default('pending'), // pending, sent, failed, cancelled
+  createdBy: varchar('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+  error: text('error'),
 })
 
 export type PhoneUserMapping = typeof phoneUserMappings.$inferSelect
@@ -218,6 +331,22 @@ export type NewSalesforceContact = typeof salesforceContacts.$inferInsert
 
 export type HubspotContact = typeof hubspotContacts.$inferSelect
 export type NewHubspotContact = typeof hubspotContacts.$inferInsert
+export type Dynamics365Contact = typeof dynamics365Contacts.$inferSelect
+export type NewDynamics365Contact = typeof dynamics365Contacts.$inferInsert
+export type ZohoContact = typeof zohoContacts.$inferSelect
+export type NewZohoContact = typeof zohoContacts.$inferInsert
+export type ZohoBiginContact = typeof zohoBiginContacts.$inferSelect
+export type NewZohoBiginContact = typeof zohoBiginContacts.$inferInsert
+export type AgencyzoomContact = typeof agencyzoomContacts.$inferSelect
+export type NewAgencyzoomContact = typeof agencyzoomContacts.$inferInsert
+export type AttioContact = typeof attioContacts.$inferSelect
+export type NewAttioContact = typeof attioContacts.$inferInsert
+export type ZendeskContact = typeof zendeskContacts.$inferSelect
+export type NewZendeskContact = typeof zendeskContacts.$inferInsert
 export type ApiKey = typeof apiKeys.$inferSelect
 export type NewApiKey = typeof apiKeys.$inferInsert
+export type MessageTemplate = typeof messageTemplates.$inferSelect
+export type NewMessageTemplate = typeof messageTemplates.$inferInsert
+export type ScheduledMessage = typeof scheduledMessages.$inferSelect
+export type NewScheduledMessage = typeof scheduledMessages.$inferInsert
 

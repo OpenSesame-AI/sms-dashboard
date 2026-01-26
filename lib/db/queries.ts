@@ -1,8 +1,9 @@
 import { db, postgresClient } from './index'
-import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, columnVisibility, availablePhoneNumbers, integrations, salesforceContacts, hubspotContacts, apiKeys } from './schema'
+import { phoneUserMappings, smsConversations, aiAnalysisColumns, aiAnalysisResults, cells, cellContext, contactSeenState, aiAlerts, aiAlertTriggers, columnColors, columnVisibility, availablePhoneNumbers, integrations, salesforceContacts, hubspotContacts, dynamics365Contacts, apiKeys, messageTemplates, scheduledMessages } from './schema'
 import { eq, sql, desc, asc, and, gte, or, like, isNull } from 'drizzle-orm'
 import { normalizePhoneNumber, getCellCountry } from '@/lib/utils'
 import { randomBytes, pbkdf2Sync, timingSafeEqual } from 'crypto'
+import { DEFAULT_BUYING_CYCLE_COLUMN_KEY, DEFAULT_BUYING_CYCLE_PROMPT } from '@/lib/constants'
 
 export type Contact = {
   id: string
@@ -24,6 +25,7 @@ export type Contact = {
   hubspotId?: string
   companyId?: string
   companyName?: string
+  dynamics365Id?: string
 }
 
 // Helper functions to format dates as strings
@@ -111,19 +113,21 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
           lm."lastStatus",
           lm."lastMessageDirection",
           sf."salesforce_id" as "salesforceId",
-          COALESCE(sf."first_name", hs."first_name") as "firstName",
-          COALESCE(sf."last_name", hs."last_name") as "lastName",
-          COALESCE(sf."email", hs."email") as "email",
+          COALESCE(sf."first_name", hs."first_name", d365."first_name") as "firstName",
+          COALESCE(sf."last_name", hs."last_name", d365."last_name") as "lastName",
+          COALESCE(sf."email", hs."email", d365."email") as "email",
           sf."account_id" as "accountId",
           sf."account_name" as "accountName",
           hs."hubspot_id" as "hubspotId",
           hs."company_id" as "companyId",
-          hs."company_name" as "companyName"
+          COALESCE(hs."company_name", d365."company_name") as "companyName",
+          d365."dynamics365_id" as "dynamics365Id"
         FROM phone_user_mappings p
         LEFT JOIN latest_messages lm ON lm.phone_number = p.phone_number
         LEFT JOIN message_counts mc ON mc.phone_number = p.phone_number
         LEFT JOIN salesforce_contacts sf ON sf.phone_number = p.phone_number AND sf.cell_id = p.cell_id
         LEFT JOIN hubspot_contacts hs ON hs.phone_number = p.phone_number AND hs.cell_id = p.cell_id
+        LEFT JOIN dynamics365_contacts d365 ON d365.phone_number = p.phone_number AND d365.cell_id = p.cell_id
         WHERE p.cell_id = ${cellId}
         ORDER BY lm."lastActivity" DESC NULLS LAST
       `
@@ -156,19 +160,21 @@ export async function getContacts(cellId?: string): Promise<Contact[]> {
           lm."lastStatus",
           lm."lastMessageDirection",
           sf."salesforce_id" as "salesforceId",
-          COALESCE(sf."first_name", hs."first_name") as "firstName",
-          COALESCE(sf."last_name", hs."last_name") as "lastName",
-          COALESCE(sf."email", hs."email") as "email",
+          COALESCE(sf."first_name", hs."first_name", d365."first_name") as "firstName",
+          COALESCE(sf."last_name", hs."last_name", d365."last_name") as "lastName",
+          COALESCE(sf."email", hs."email", d365."email") as "email",
           sf."account_id" as "accountId",
           sf."account_name" as "accountName",
           hs."hubspot_id" as "hubspotId",
           hs."company_id" as "companyId",
-          hs."company_name" as "companyName"
+          COALESCE(hs."company_name", d365."company_name") as "companyName",
+          d365."dynamics365_id" as "dynamics365Id"
         FROM phone_user_mappings p
         LEFT JOIN latest_messages lm ON lm.phone_number = p.phone_number
         LEFT JOIN message_counts mc ON mc.phone_number = p.phone_number
         LEFT JOIN salesforce_contacts sf ON sf.phone_number = p.phone_number AND sf.cell_id = p.cell_id
         LEFT JOIN hubspot_contacts hs ON hs.phone_number = p.phone_number AND hs.cell_id = p.cell_id
+        LEFT JOIN dynamics365_contacts d365 ON d365.phone_number = p.phone_number AND d365.cell_id = p.cell_id
         ORDER BY lm."lastActivity" DESC NULLS LAST
       `
 
@@ -617,6 +623,18 @@ export async function getAiColumns() {
   return await db.select().from(aiAnalysisColumns).orderBy(asc(aiAnalysisColumns.createdAt))
 }
 
+export async function ensureDefaultBuyingCycleColumn() {
+  const existing = await getAiColumnByKey(DEFAULT_BUYING_CYCLE_COLUMN_KEY)
+  
+  if (!existing) {
+    await createAiColumn(
+      DEFAULT_BUYING_CYCLE_COLUMN_KEY,
+      'Buying Cycle Stage',
+      DEFAULT_BUYING_CYCLE_PROMPT
+    )
+  }
+}
+
 export async function getAiColumnByKey(columnKey: string) {
   const result = await db
     .select()
@@ -634,10 +652,24 @@ export async function createAiColumn(columnKey: string, name: string, prompt: st
       columnKey,
       name,
       prompt,
-    })
-    .returning()
+    })    .returning()
   
-  return result[0]
+  const newCell = result[0]
+  
+  // Create default sentiment alert for the new cell
+  try {
+    await createAiAlert(
+      'Customer Sentiment',
+      'ai',
+      "Does the customer's message express positive or negative sentiment (not neutral)? Look for emotional indicators, satisfaction or dissatisfaction, praise or complaints, frustration or appreciation. Respond 'yes' if the sentiment is clearly positive or negative, 'no' if it's neutral or factual.",
+      newCell.id
+    )
+  } catch (error) {
+    // Log error but don't fail cell creation if alert creation fails
+    console.error('Failed to create default sentiment alert for cell:', error)
+  }
+  
+  return newCell
 }
 
 export async function updateAiColumn(columnKey: string, name: string, prompt: string) {
@@ -782,7 +814,22 @@ export async function createCell(phoneNumber: string, name: string, userId: stri
     })
     .returning()
   
-  return result[0]
+  const newCell = result[0]
+
+  // Create default sentiment alert for the new cell
+  try {
+    await createAiAlert(
+      'Customer Sentiment',
+      'ai',
+      "Does the customer's message express positive or negative sentiment (not neutral)? Look for emotional indicators, satisfaction or dissatisfaction, praise or complaints, frustration or appreciation. Respond 'yes' if the sentiment is clearly positive or negative, 'no' if it's neutral or factual.",
+      newCell.id
+    )
+  } catch (error) {
+    // Log error but don't fail cell creation if alert creation fails
+    console.error('Failed to create default sentiment alert for cell:', error)
+  }
+
+  return newCell
 }
 
 export async function updateCell(id: string, name: string, userId: string, phoneNumber?: string, systemPrompt?: string, orgId?: string | null) {
@@ -921,7 +968,22 @@ export async function addCellContext(
     })
     .returning()
   
-  return result[0]
+  const newCell = result[0]
+  
+  // Create default sentiment alert for the new cell
+  try {
+    await createAiAlert(
+      'Customer Sentiment',
+      'ai',
+      "Does the customer's message express positive or negative sentiment (not neutral)? Look for emotional indicators, satisfaction or dissatisfaction, praise or complaints, frustration or appreciation. Respond 'yes' if the sentiment is clearly positive or negative, 'no' if it's neutral or factual.",
+      newCell.id
+    )
+  } catch (error) {
+    // Log error but don't fail cell creation if alert creation fails
+    console.error('Failed to create default sentiment alert for cell:', error)
+  }
+  
+  return newCell
 }
 
 export async function deleteCellContext(contextId: string) {
@@ -1045,7 +1107,22 @@ export async function createAiAlert(
     })
     .returning()
   
-  return result[0]
+  const newCell = result[0]
+  
+  // Create default sentiment alert for the new cell
+  try {
+    await createAiAlert(
+      'Customer Sentiment',
+      'ai',
+      "Does the customer's message express positive or negative sentiment (not neutral)? Look for emotional indicators, satisfaction or dissatisfaction, praise or complaints, frustration or appreciation. Respond 'yes' if the sentiment is clearly positive or negative, 'no' if it's neutral or factual.",
+      newCell.id
+    )
+  } catch (error) {
+    // Log error but don't fail cell creation if alert creation fails
+    console.error('Failed to create default sentiment alert for cell:', error)
+  }
+  
+  return newCell
 }
 
 export async function updateAiAlert(
@@ -1159,7 +1236,22 @@ export async function createAiAlertTrigger(
     })
     .returning()
   
-  return result[0]
+  const newCell = result[0]
+  
+  // Create default sentiment alert for the new cell
+  try {
+    await createAiAlert(
+      'Customer Sentiment',
+      'ai',
+      "Does the customer's message express positive or negative sentiment (not neutral)? Look for emotional indicators, satisfaction or dissatisfaction, praise or complaints, frustration or appreciation. Respond 'yes' if the sentiment is clearly positive or negative, 'no' if it's neutral or factual.",
+      newCell.id
+    )
+  } catch (error) {
+    // Log error but don't fail cell creation if alert creation fails
+    console.error('Failed to create default sentiment alert for cell:', error)
+  }
+  
+  return newCell
 }
 
 export async function dismissAiAlertTrigger(id: string) {
@@ -1803,3 +1895,305 @@ export async function updateApiKeyLastUsed(keyId: string): Promise<void> {
     .where(eq(apiKeys.id, keyId))
 }
 
+// Message Templates query functions
+
+/**
+ * Get message templates for a cell (or global templates if cellId is not provided)
+ * Returns cell-specific templates first, then global templates
+ */
+export async function getMessageTemplates(cellId?: string): Promise<typeof messageTemplates.$inferSelect[]> {
+  if (cellId) {
+    // Get both cell-specific and global templates
+    const templates = await db
+      .select()
+      .from(messageTemplates)
+      .where(
+        or(
+          eq(messageTemplates.cellId, cellId),
+          isNull(messageTemplates.cellId)
+        ) as any
+      )
+      .orderBy(
+        // Cell-specific templates first, then global
+        sql`CASE WHEN ${messageTemplates.cellId} IS NOT NULL THEN 0 ELSE 1 END`,
+        asc(messageTemplates.name)
+      )
+    
+    return templates
+  } else {
+    // Only global templates
+    const templates = await db
+      .select()
+      .from(messageTemplates)
+      .where(isNull(messageTemplates.cellId) as any)
+      .orderBy(asc(messageTemplates.name))
+    
+    return templates
+  }
+}
+
+/**
+ * Create a new message template
+ */
+export async function createMessageTemplate(data: {
+  name: string
+  content: string
+  cellId?: string | null
+}): Promise<typeof messageTemplates.$inferSelect> {
+  const [template] = await db
+    .insert(messageTemplates)
+    .values({
+      name: data.name,
+      content: data.content,
+      cellId: data.cellId || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning()
+  
+  return template
+}
+
+/**
+ * Update an existing message template
+ */
+export async function updateMessageTemplate(
+  id: string,
+  data: {
+    name?: string
+    content?: string
+  }
+): Promise<typeof messageTemplates.$inferSelect | null> {
+  const updateData: any = {
+    updatedAt: new Date(),
+  }
+  
+  if (data.name !== undefined) {
+    updateData.name = data.name
+  }
+  
+  if (data.content !== undefined) {
+    updateData.content = data.content
+  }
+  
+  const [template] = await db
+    .update(messageTemplates)
+    .set(updateData)
+    .where(eq(messageTemplates.id, id))
+    .returning()
+  
+  return template || null
+}
+
+/**
+ * Delete a message template
+ */
+export async function deleteMessageTemplate(id: string): Promise<boolean> {
+  const result = await db
+    .delete(messageTemplates)
+    .where(eq(messageTemplates.id, id))
+    .returning()
+  
+  return result.length > 0
+}
+
+// ============================================
+// Scheduled Messages Functions
+// ============================================
+
+export type ScheduledMessageWithCell = typeof scheduledMessages.$inferSelect & {
+  cellName?: string
+  cellPhoneNumber?: string
+}
+
+/**
+ * Get scheduled messages for a cell
+ */
+export async function getScheduledMessages(
+  cellId: string,
+  status?: string
+): Promise<ScheduledMessageWithCell[]> {
+  const conditions = [eq(scheduledMessages.cellId, cellId)]
+  
+  if (status) {
+    conditions.push(eq(scheduledMessages.status, status))
+  }
+  
+  const messages = await db
+    .select({
+      id: scheduledMessages.id,
+      cellId: scheduledMessages.cellId,
+      message: scheduledMessages.message,
+      recipients: scheduledMessages.recipients,
+      scheduledFor: scheduledMessages.scheduledFor,
+      status: scheduledMessages.status,
+      createdBy: scheduledMessages.createdBy,
+      createdAt: scheduledMessages.createdAt,
+      sentAt: scheduledMessages.sentAt,
+      error: scheduledMessages.error,
+      cellName: cells.name,
+      cellPhoneNumber: cells.phoneNumber,
+    })
+    .from(scheduledMessages)
+    .leftJoin(cells, eq(scheduledMessages.cellId, cells.id))
+    .where(and(...conditions))
+    .orderBy(asc(scheduledMessages.scheduledFor))
+  
+  return messages.map(msg => ({
+    ...msg,
+    cellName: msg.cellName ?? undefined,
+    cellPhoneNumber: msg.cellPhoneNumber ?? undefined,
+  }))
+}
+
+/**
+ * Get a single scheduled message by ID
+ */
+export async function getScheduledMessageById(
+  id: string
+): Promise<typeof scheduledMessages.$inferSelect | null> {
+  const [message] = await db
+    .select()
+    .from(scheduledMessages)
+    .where(eq(scheduledMessages.id, id))
+  
+  return message || null
+}
+
+/**
+ * Get all pending scheduled messages that are due to be sent
+ */
+export async function getDueScheduledMessages(): Promise<(typeof scheduledMessages.$inferSelect & { cellPhoneNumber: string })[]> {
+  const now = new Date()
+  
+  const messages = await db
+    .select({
+      id: scheduledMessages.id,
+      cellId: scheduledMessages.cellId,
+      message: scheduledMessages.message,
+      recipients: scheduledMessages.recipients,
+      scheduledFor: scheduledMessages.scheduledFor,
+      status: scheduledMessages.status,
+      createdBy: scheduledMessages.createdBy,
+      createdAt: scheduledMessages.createdAt,
+      sentAt: scheduledMessages.sentAt,
+      error: scheduledMessages.error,
+      cellPhoneNumber: cells.phoneNumber,
+    })
+    .from(scheduledMessages)
+    .innerJoin(cells, eq(scheduledMessages.cellId, cells.id))
+    .where(
+      and(
+        eq(scheduledMessages.status, 'pending'),
+        sql`${scheduledMessages.scheduledFor} <= ${now}`
+      )
+    )
+    .orderBy(asc(scheduledMessages.scheduledFor))
+  
+  return messages
+}
+
+/**
+ * Create a new scheduled message
+ */
+export async function createScheduledMessage(data: {
+  cellId: string
+  message: string
+  recipients: string[]
+  scheduledFor: Date
+  createdBy: string
+}): Promise<typeof scheduledMessages.$inferSelect> {
+  const [message] = await db
+    .insert(scheduledMessages)
+    .values({
+      cellId: data.cellId,
+      message: data.message,
+      recipients: JSON.stringify(data.recipients),
+      scheduledFor: data.scheduledFor,
+      createdBy: data.createdBy,
+      status: 'pending',
+      createdAt: new Date(),
+    })
+    .returning()
+  
+  return message
+}
+
+/**
+ * Update a scheduled message
+ */
+export async function updateScheduledMessage(
+  id: string,
+  data: {
+    message?: string
+    recipients?: string[]
+    scheduledFor?: Date
+    status?: string
+    sentAt?: Date
+    error?: string
+  }
+): Promise<typeof scheduledMessages.$inferSelect | null> {
+  const updateData: Record<string, unknown> = {}
+  
+  if (data.message !== undefined) {
+    updateData.message = data.message
+  }
+  
+  if (data.recipients !== undefined) {
+    updateData.recipients = JSON.stringify(data.recipients)
+  }
+  
+  if (data.scheduledFor !== undefined) {
+    updateData.scheduledFor = data.scheduledFor
+  }
+  
+  if (data.status !== undefined) {
+    updateData.status = data.status
+  }
+  
+  if (data.sentAt !== undefined) {
+    updateData.sentAt = data.sentAt
+  }
+  
+  if (data.error !== undefined) {
+    updateData.error = data.error
+  }
+  
+  const [message] = await db
+    .update(scheduledMessages)
+    .set(updateData)
+    .where(eq(scheduledMessages.id, id))
+    .returning()
+  
+  return message || null
+}
+
+/**
+ * Cancel a scheduled message (soft delete by setting status to cancelled)
+ */
+export async function cancelScheduledMessage(id: string): Promise<boolean> {
+  const [message] = await db
+    .update(scheduledMessages)
+    .set({ status: 'cancelled' })
+    .where(
+      and(
+        eq(scheduledMessages.id, id),
+        eq(scheduledMessages.status, 'pending')
+      )
+    )
+    .returning()
+  
+  return !!message
+}
+
+/**
+ * Delete a scheduled message (hard delete)
+ */
+export async function deleteScheduledMessage(id: string): Promise<boolean> {
+  const result = await db
+    .delete(scheduledMessages)
+    .where(eq(scheduledMessages.id, id))
+    .returning()
+  
+  return result.length > 0
+}

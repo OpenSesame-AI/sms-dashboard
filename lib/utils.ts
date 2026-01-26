@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js'
+import type { Contact } from './data'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -183,4 +184,57 @@ export function isWebView(userAgent?: string): boolean {
   }
 
   return false
+}
+
+/**
+ * Substitute template variables in a message template with contact data
+ * Supports variables: {firstName}, {lastName}, {fullName}, {email}, {phoneNumber}, {accountName}, {companyName}
+ * Variables are case-insensitive
+ * Missing values are replaced with empty string
+ */
+export function substituteTemplateVariables(template: string, contact: Contact | null): string {
+  if (!contact) {
+    return template
+  }
+
+  // Helper function to get full name
+  const getFullName = () => {
+    if (contact.firstName && contact.lastName) {
+      return `${contact.firstName} ${contact.lastName}`
+    } else if (contact.firstName) {
+      return contact.firstName
+    } else if (contact.lastName) {
+      return contact.lastName
+    } else {
+      return contact.phoneNumber || ''
+    }
+  }
+
+  // Create a map of variable names (normalized to lowercase) to values
+  const variables: Record<string, string> = {
+    firstname: contact.firstName || '',
+    lastname: contact.lastName || '',
+    fullname: getFullName(),
+    email: contact.email || '',
+    phonenumber: contact.phoneNumber || '',
+    accountname: contact.accountName || '',
+    companyname: contact.companyName || '',
+  }
+
+  // Replace all {variableName} patterns (case-insensitive)
+  let result = template
+  const variablePattern = /\{([^}]+)\}/g
+  
+  result = result.replace(variablePattern, (match, varName) => {
+    const normalizedVarName = varName.toLowerCase().trim()
+    
+    if (variables.hasOwnProperty(normalizedVarName)) {
+      return variables[normalizedVarName]
+    }
+    
+    // If variable not found, return empty string
+    return ''
+  })
+
+  return result
 }

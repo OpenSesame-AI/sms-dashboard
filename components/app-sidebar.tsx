@@ -15,6 +15,8 @@ import {
   Plug,
   Wrench,
   Monitor,
+  MessageSquare,
+  Clock,
 } from "lucide-react"
 
 import {
@@ -51,6 +53,11 @@ const menuItems = [
     title: "Integrations",
     url: "/integrations",
     icon: Plug,
+  },
+  {
+    title: "Templates",
+    url: "/templates",
+    icon: MessageSquare,
   },
   {
     title: "Table",
@@ -115,15 +122,15 @@ export function AppSidebar() {
       onMouseLeave={handleMouseLeave}
     >
       <SidebarContent>
-        {/* Base URL bundle group: Cells, Usage, Billing, Integrations */}
-        {["/", "/usage", "/billing", "/integrations"].includes(pathname) && (
+        {/* Base URL bundle group: Cells, Usage, Billing, Integrations, Templates */}
+        {["/", "/usage", "/billing", "/integrations", "/templates"].includes(pathname) && (
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
                 {menuItems
                   .filter((item) => {
                     // Base URL bundle: these pages should only show each other
-                    const baseUrlBundle = ["/", "/usage", "/billing", "/integrations"]
+                    const baseUrlBundle = ["/", "/usage", "/billing", "/integrations", "/templates"]
                     return baseUrlBundle.includes(item.url)
                   })
                   .map((item) => {
@@ -146,7 +153,7 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
         {/* First group: Table and Analytics */}
-        {!["/", "/usage", "/billing", "/integrations"].includes(pathname) && (
+        {!["/", "/usage", "/billing", "/integrations", "/templates"].includes(pathname) && (
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
@@ -170,7 +177,7 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
         {/* Second group: Tools, Platforms, and Context */}
-        {!["/", "/usage", "/billing", "/integrations"].includes(pathname) && (
+        {!["/", "/usage", "/billing", "/integrations", "/templates"].includes(pathname) && (
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
@@ -191,6 +198,16 @@ export function AppSidebar() {
                   })}
                 {selectedCell && (
                   <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={pathname === "/scheduled"}>
+                      <Link href="/scheduled">
+                        <Clock />
+                        <span>Scheduled</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {selectedCell && (
+                  <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={isContextPage}>
                       <Link href="/context">
                         <FileText />
@@ -209,7 +226,7 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
         {/* Third group: API Keys and Settings */}
-        {!["/", "/usage", "/billing", "/integrations"].includes(pathname) && (
+        {!["/", "/usage", "/billing", "/integrations", "/templates"].includes(pathname) && (
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
